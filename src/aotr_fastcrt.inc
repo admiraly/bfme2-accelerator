@@ -49,6 +49,12 @@ static tCrtSet   o_crtMemset = NULL;
 static tCrtLen   o_crtStrlen = NULL;
 static tCrtSCmp  o_crtStricmp = NULL;
 static tCrtSNCmp o_crtStrnicmp = NULL;
+// VS2003's exported locale handles are updated by setlocale. Index 2 is
+// LC_CTYPE; zero denotes C. Read it each call rather than caching locale state.
+static const volatile DWORD* g_crtCTypeHandle = NULL;
+static __forceinline bool crtAsciiLocale() {
+    return g_crtCTypeHandle && *g_crtCTypeHandle == 0;
+}
 
 static __forceinline bool crtFinite(const double* x) {
     return (((const DWORD*)x)[1] & 0x7FF00000u) != 0x7FF00000u;
@@ -158,10 +164,35 @@ static size_t __cdecl fastStrlen(const char* s) {
 // case-insensitive compares: ASCII only. A byte with the high bit set on either side means the answer depends on the
 // locale's table, so that call goes to msvcr71 from the beginning.
 static __forceinline int crtLowerAscii(BYTE c) { return (c >= 'A' && c <= 'Z') ? c + 32 : c; }
+// A SIMD load must stay within both committed pages. Events are resolved in
+// byte order: a later non-ASCII byte cannot change an earlier ASCII answer.
+#define CRT_PAGE_SAFE(a, b) (((((size_t)(a)) | ((size_t)(b))) & 4095) <= 4080)
+static __forceinline __m128i crtFoldAscii16(__m128i x) {
+    // Adding 63 maps ASCII A..Z to signed -128..-103. All other byte
+    // values map above -103, so one comparison identifies the whole range.
+    __m128i upper = _mm_cmpgt_epi8(_mm_set1_epi8(-102), _mm_add_epi8(x, _mm_set1_epi8(63)));
+    return _mm_or_si128(x, _mm_and_si128(upper, _mm_set1_epi8(32)));
+}
+static __forceinline unsigned crtCaseEvents(__m128i x, __m128i y) {
+    unsigned equal = (unsigned)_mm_movemask_epi8(_mm_cmpeq_epi8(crtFoldAscii16(x), crtFoldAscii16(y)));
+    unsigned zero = (unsigned)_mm_movemask_epi8(_mm_cmpeq_epi8(x, _mm_setzero_si128()));
+    unsigned high = (unsigned)_mm_movemask_epi8(_mm_or_si128(x, y));
+    return (~equal | zero | high) & 0xFFFF;
+}
 static int __cdecl fastStricmp(const char* a, const char* b) {
-    const BYTE* x = (const BYTE*)a; const BYTE* y = (const BYTE*)b;
+    if (!crtAsciiLocale()) return o_crtStricmp(a, b);
+    const char* x = a; const char* y = b;
     for (;;) {
-        BYTE ca = *x++, cb = *y++;
+        if (CRT_PAGE_SAFE(x, y)) {
+            unsigned events = crtCaseEvents(_mm_loadu_si128((const __m128i*)x), _mm_loadu_si128((const __m128i*)y));
+            if (!events) { x += 16; y += 16; continue; }
+            unsigned long k; _BitScanForward(&k, events);
+            BYTE ca = (BYTE)x[k], cb = (BYTE)y[k];
+            if ((ca | cb) & 0x80) return o_crtStricmp(a, b);
+            int la = crtLowerAscii(ca), lb = crtLowerAscii(cb);
+            return la == lb ? 0 : (la < lb ? -1 : 1);
+        }
+        BYTE ca = (BYTE)*x++, cb = (BYTE)*y++;
         if ((ca | cb) & 0x80) return o_crtStricmp(a, b);
         int la = crtLowerAscii(ca), lb = crtLowerAscii(cb);
         if (la != lb) return la < lb ? -1 : 1;
@@ -169,12 +200,36 @@ static int __cdecl fastStricmp(const char* a, const char* b) {
     }
 }
 static int __cdecl fastStrnicmp(const char* a, const char* b, size_t n) {
-    for (size_t i = 0; i < n; ++i) {
-        BYTE ca = (BYTE)a[i], cb = (BYTE)b[i];
+    if (!crtAsciiLocale()) return o_crtStrnicmp(a, b, n);
+    size_t i = 0;
+    while (i < n) {
+        unsigned events;
+        if (n - i >= 16 && CRT_PAGE_SAFE(a + i, b + i)) {
+            events = crtCaseEvents(_mm_loadu_si128((const __m128i*)(a + i)), _mm_loadu_si128((const __m128i*)(b + i)));
+            if (!events) { i += 16; continue; }
+        } else {
+            // Resolve short/page-tail first-byte events before narrow SIMD.
+            // Leave equal bytes in place so a load still covers the full span.
+            BYTE ca = (BYTE)a[i], cb = (BYTE)b[i];
+            if ((ca | cb) & 0x80) return o_crtStrnicmp(a, b, n);
+            int la = crtLowerAscii(ca), lb = crtLowerAscii(cb);
+            if (la != lb) return la < lb ? -1 : 1;
+            if (!ca) return 0;
+            // Every narrow load stays within both pages and the remaining count.
+            if (n - i >= 8 && (((((size_t)(a + i)) | ((size_t)(b + i))) & 4095) <= 4088)) {
+                events = crtCaseEvents(_mm_loadl_epi64((const __m128i*)(a + i)), _mm_loadl_epi64((const __m128i*)(b + i))) & 0xFF;
+                if (!events) { i += 8; continue; }
+            } else if (n - i >= 4 && (((((size_t)(a + i)) | ((size_t)(b + i))) & 4095) <= 4092)) {
+                events = crtCaseEvents(_mm_cvtsi32_si128(*(const int*)(a + i)), _mm_cvtsi32_si128(*(const int*)(b + i))) & 0xF;
+                if (!events) { i += 4; continue; }
+            } else { ++i; continue; }
+        }
+        // One shared first-event resolver keeps the vector hot path compact.
+        unsigned long k; _BitScanForward(&k, events);
+        BYTE ca = (BYTE)a[i + k], cb = (BYTE)b[i + k];
         if ((ca | cb) & 0x80) return o_crtStrnicmp(a, b, n);
         int la = crtLowerAscii(ca), lb = crtLowerAscii(cb);
-        if (la != lb) return la < lb ? -1 : 1;
-        if (!ca) return 0;
+        return la == lb ? 0 : (la < lb ? -1 : 1);
     }
     return 0;
 }
@@ -195,7 +250,6 @@ static double __cdecl fastCeil(double x) {
 // --- string compares and copies, 16 bytes at a time. A 16-byte load is only taken while both pointers are at
 // least 16 bytes from the end of their page (the bitwise OR of the two page offsets is >= either of them, so one
 // test covers both); next to a page boundary it walks byte by byte, so nothing is ever read past a string's end.
-#define CRT_PAGE_SAFE(a, b) (((((size_t)(a)) | ((size_t)(b))) & 4095) <= 4080)
 static int __cdecl fastStrcmp(const char* a, const char* b) {
     for (;;) {
         if (CRT_PAGE_SAFE(a, b)) {
@@ -303,6 +357,8 @@ static bool crtSse41() {
 }
 static bool crtPrepare(HMODULE crt) {               // resolve the originals (also used by the test program)
     if (!crt) return false;
+    const DWORD* handles = (const DWORD*)GetProcAddress(crt, "__lc_handle");
+    g_crtCTypeHandle = handles ? handles + 2 : NULL;
     o_crtFloor    = (tCrtD1)GetProcAddress(crt, "floor");
     o_crtStrcmp   = (tCrtSCmp)GetProcAddress(crt, "strcmp");
     o_crtStrncmp  = (tCrtSNCmp)GetProcAddress(crt, "strncmp");

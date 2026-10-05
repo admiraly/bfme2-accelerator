@@ -30,6 +30,7 @@ extern "C" {
 static char g_dir[MAX_PATH] = "";
 static char kLogPath[MAX_PATH] = "";
 static volatile LONG g_engineHooks = 0;   // may this build's absolute addresses be patched?
+static bool g_bfme2Candidate = false;
 static void aotrSetDir(HMODULE self) {
     char p[MAX_PATH];
     DWORD n = GetModuleFileNameA(self, p, MAX_PATH);
@@ -128,6 +129,7 @@ static BYTE* makeTrampoline(BYTE* target, int stolen) {
     memcpy(t, target, stolen);
     t[stolen] = 0xE9;
     *(DWORD*)(t + stolen + 1) = (DWORD)(ULONG_PTR)(target + stolen) - (DWORD)(ULONG_PTR)(t + stolen + 5);
+    FlushInstructionCache(GetCurrentProcess(), t, stolen + 5);
     return t;
 }
 
@@ -1447,7 +1449,10 @@ static void __fastcall hkAnTree(void* ecx, void* edx) {
     ULONG64 t = __rdtsc(); o_an[AN_TREE](ecx, edx); LONG p = g_phase; g_anT[AN_TREE][p] += (LONG64)(__rdtsc() - t); g_anN[AN_TREE][p]++;
 }
 #include "aotr_equivmemo.inc"
+#include "bfme2_equivfast.inc"
 #include "aotr_fastcrt.inc"
+#include "bfme2_stringfast.inc"
+#include "bfme2_packetfast.inc"
 static void installPhaseTimers() {
     __try {
         static const BYTE kLogicPre[] = {0x55,0x56,0x57,0x68,0x50,0xE3,0xBF,0x00};
@@ -2370,8 +2375,10 @@ static void rotateLog() {
 #include "aotr_logicspread.inc"
 #include "aotr_mutexcs.inc"
 #include "aotr_audiolimit.inc"
+#include "bfme2_audioindex.inc"
 #include "aotr_drawgen.inc"
 #include "aotr_rlsort.inc"
+#include "bfme2_rlsort.inc"
 #include "aotr_rt.inc"
 
 // ---------------------------------------------------------------- game-thread sampler v2 (RT build)
@@ -2667,6 +2674,7 @@ static DWORD WINAPI initThread(LPVOID) {
         bool family = ((DWORD)(ULONG_PTR)base == 0x00400000) && textLen &&
                       GetModuleHandleA("msvcr71.dll") && GetModuleHandleA("mss32.dll");
         if (hit) {
+            g_bfme2Candidate = hit->hash == 0x32667B9B && (DWORD)(ULONG_PTR)base == 0x00400000;
             g_engineHooks = hit->engineHooks ? 1 : 0;
             logf("init: %s (.text %08X). %s", hit->name, textHash,
                  g_engineHooks ? "Everything is installed." :
@@ -2774,6 +2782,13 @@ static DWORD WINAPI initThread(LPVOID) {
         installMutexCs();                            // unnamed engine mutexes -> user-mode recursive locks; Set_Transform counted per phase
         installAudioLimit();                         // sound request limit check: indexed count instead of a list walk per request (self-proving)
         installDeviceLock();                         // engine device mutex -> user-mode recursive lock
+        }
+        if (g_bfme2Candidate) {
+            installBfme2AudioIndex(base);
+            installBfme2EquivFast(base);
+            installBfme2RlSort(base);
+            installBfme2StringFast(base);
+            installBfme2PacketFast(base);
         }
 #ifndef AOTR_PROD
         CreateThread(NULL, 0, rtReport, NULL, 0, NULL);

@@ -31,9 +31,9 @@ static BYTE* guarded(size_t n) {
 
 static void fillRnd(BYTE* p, size_t n) { for (size_t i = 0; i < n; ++i) p[i] = (BYTE)rnd(); }
 
-int main() {
+int main(int argc, char** argv) {
     setvbuf(stdout, NULL, _IONBF, 0);
-    HMODULE crt = LoadLibraryA("C:\\AgeoftheRing\\rotwk\\msvcr71.dll");
+    HMODULE crt = LoadLibraryA(argc > 1 ? argv[1] : "msvcr71.dll");
     if (!crt) { printf("cannot load msvcr71.dll (%lu)\n", GetLastError()); return 2; }
     if (!crtPrepare(crt)) { printf("crtPrepare failed\n"); return 3; }
     A = guarded(SCRATCH); B = guarded(SCRATCH); R1 = guarded(SCRATCH); R2 = guarded(SCRATCH);
@@ -258,6 +258,8 @@ int main() {
         }
         VirtualFree(img, 0, MEM_RELEASE);
     }
+
+    if (argc > 2 && !strcmp(argv[2], "--verify")) return g_fail ? 1 : 0;
 
     // ---- speed
     LARGE_INTEGER f, t0, t1; QueryPerformanceFrequency(&f);

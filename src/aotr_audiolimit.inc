@@ -23,12 +23,22 @@
 // Self-proving: the first 20000 indexed answers are compared with the plain walk, afterwards 1 in 64; a single
 // difference switches the index off for good (the plain walk's answer is the one used). Kill switch: AOTR_AUDIOLIMIT=0.
 
+// Diagnostic telemetry must not tax production calls. Proof cadence, mutation
+// invalidation, fault limits and mismatch fallback remain active in both builds.
+#ifdef AOTR_PROD
+#define AL_STAT(...) ((void)0)
+#else
+#define AL_STAT(...) do { __VA_ARGS__; } while (0)
+#endif
+
 #ifndef AL_PRIM_PUSHBACK                                   // the list primitives (the offline test substitutes its own)
-#define AL_PRIM_PUSHBACK  0x0060011F
-#define AL_PRIM_PUSHFRONT 0x0086DC96
-#define AL_PRIM_ERASE     0x00702055
-#define AL_PRIM_POPBACK   0x0094EB6C
-#define AL_PRIM_CLEAR     0x005FFE47
+static DWORD g_alPushBackAddr = 0x0060011F, g_alPushFrontAddr = 0x0086DC96;
+static DWORD g_alEraseAddr = 0x00702055, g_alPopBackAddr = 0x0094EB6C, g_alClearAddr = 0x005FFE47;
+#define AL_PRIM_PUSHBACK  g_alPushBackAddr
+#define AL_PRIM_PUSHFRONT g_alPushFrontAddr
+#define AL_PRIM_ERASE     g_alEraseAddr
+#define AL_PRIM_POPBACK   g_alPopBackAddr
+#define AL_PRIM_CLEAR     g_alClearAddr
 #endif
 typedef void  (__fastcall* tAlPass)(void*, void*);
 typedef void  (__fastcall* tAlPush)(void*, void*, void*);
@@ -86,7 +96,7 @@ static bool alBuild(DWORD mgr) {
     if (!++g_alEpoch) { memset(g_alInfo, 0, sizeof(g_alInfo)); memset(g_alNode, 0, sizeof(g_alNode)); g_alEpoch = 1; }
     LONG n = 0; g_alUnkHead = g_alUnkTail = -1; g_alMgr = 0;
     for (DWORD node = *(DWORD*)(ULONG_PTR)head; node != head; node = *(DWORD*)(ULONG_PTR)node) {
-        if (n >= AL_MAXENT) { g_alTooBig++; return false; }
+        if (n >= AL_MAXENT) { AL_STAT(g_alTooBig++); return false; }
         DWORD req = *(DWORD*)(ULONG_PTR)(node + 8), ev = req ? *(DWORD*)(ULONG_PTR)(req + 4) : 0, info = ev ? *(DWORD*)(ULONG_PTR)(ev + 8) : 0;
         AlEnt& e = g_alEnt[n]; e.node = node; e.info = info; e.next = -1; e.dead = 0;
         AlSlot* ns = alClaim(g_alNode, node); if (!ns || ns->head >= 0) return false;              // full, or the same node twice: not a list this index understands
@@ -99,7 +109,7 @@ static bool alBuild(DWORD mgr) {
         ++n;
     }
     g_alN = n; g_alFirst = 0; g_alLast = n - 1; g_alHead = head; g_alMgr = mgr;
-    g_alBuildNodes += n;
+    AL_STAT(g_alBuildNodes += n);
     return true;
 }
 // one entry, read live from its node. 1 = counts, 0 = does not, -1 = the index cannot be trusted
@@ -136,17 +146,19 @@ static LONG alIndexed(DWORD mgr, DWORD event, bool* ok) {
             if (r < 0) { *ok = false; return 0; }
         }
     } __except (EXCEPTION_EXECUTE_HANDLER) { g_alFaults++; *ok = false; return 0; }
-    g_alIdxEnts += seen;
+    AL_STAT(g_alIdxEnts += seen);
     return c;
 }
 static LONG __stdcall alCount(DWORD mgr, DWORD event) {
+    #ifndef AOTR_PROD
     ULONG64 t0 = __rdtsc();
+    #endif
     LONG c, v = 0;
-    g_alCalls++;
+    AL_STAT(g_alCalls++);
     bool use = false;
     if (g_alLive && g_alInPass && __readfsdword(0x24) == g_alPassTid) {
         if ((g_alDirty || mgr != g_alMgr) && !g_alSmall && g_alPassRebuilds < 8) {
-            g_alPassRebuilds++; g_alRebuilds++;
+            g_alPassRebuilds++; AL_STAT(g_alRebuilds++);
             if (alBuild(mgr)) { g_alDirty = 0; if (g_alN < 48) g_alSmall = 1; }        // a short list is walked as before
             else g_alSmall = 1;                                                           // too long for the index: plain walks for the rest of this pass
         }
@@ -155,11 +167,11 @@ static LONG __stdcall alCount(DWORD mgr, DWORD event) {
     if (use) {
         bool ok = true;
         c = alIndexed(mgr, event, &ok);
-        if (!ok) { g_alDirty = 1; g_alStale++; if (g_alFaults > 3) g_alLive = 0; c = alWalk(mgr, event, &v); g_alWalkNodes += v; }
+        if (!ok) { g_alDirty = 1; AL_STAT(g_alStale++); if (g_alFaults > 3) g_alLive = 0; c = alWalk(mgr, event, &v); AL_STAT(g_alWalkNodes += v); }
         else {
             LONG k = ++g_alIdx;
             if (g_alProofLeft > 0 || !(k & 63)) {
-                LONG w = alWalk(mgr, event, &v); g_alChecked++;
+                LONG w = alWalk(mgr, event, &v); AL_STAT(g_alChecked++);
                 if (g_alProofLeft > 0) g_alProofLeft--;
                 if (w != c) {
                     g_alMismatch++; g_alLive = 0;
@@ -167,19 +179,21 @@ static LONG __stdcall alCount(DWORD mgr, DWORD event) {
                          (int)c, (int)w, event, *(DWORD*)(ULONG_PTR)(event + 8), (int)g_alN, (int)v);
                     c = w;
                 }
-            } else g_alSavedNodes += g_alN;
+            } else AL_STAT(g_alSavedNodes += g_alN);
         }
-    } else { c = alWalk(mgr, event, &v); g_alWalkNodes += v; }
+    } else { c = alWalk(mgr, event, &v); AL_STAT(g_alWalkNodes += v); }
+    #ifndef AOTR_PROD
     g_alTicks += __rdtsc() - t0;
+    #endif
     return c;
 }
 static void __fastcall hkAlPass(void* mgr, void* edx) {
-    g_alPassTid = __readfsdword(0x24); g_alDirty = 1; g_alSmall = 0; g_alPassRebuilds = 0; g_alInPass = 1; g_alPasses++;
+    g_alPassTid = __readfsdword(0x24); g_alDirty = 1; g_alSmall = 0; g_alPassRebuilds = 0; g_alInPass = 1; AL_STAT(g_alPasses++);
     o_alPass(mgr, edx);
     g_alInPass = 0;
 }
 // ---- the list primitives, as called by the audio manager
-static __forceinline void alMutated(void* list) { if (g_alMgr && (DWORD)(ULONG_PTR)list == g_alMgr + 0x98) { g_alDirty = 1; g_alMut++; } }
+static __forceinline void alMutated(void* list) { if (g_alMgr && (DWORD)(ULONG_PTR)list == g_alMgr + 0x98) { g_alDirty = 1; AL_STAT(g_alMut++); } }
 static void  __fastcall alThPushBack(void* list, void* edx, void* pval)  { alMutated(list); ((tAlPush)(ULONG_PTR)AL_PRIM_PUSHBACK)(list, edx, pval); }
 static void  __fastcall alThPushFront(void* list, void* edx, void* pval) { alMutated(list); ((tAlPush)(ULONG_PTR)AL_PRIM_PUSHFRONT)(list, edx, pval); }
 static void  __fastcall alThPopBack(void* list, void* edx)               { alMutated(list); ((tAlVoid)(ULONG_PTR)AL_PRIM_POPBACK)(list, edx); }
@@ -187,8 +201,8 @@ static void  __fastcall alThClear(void* list, void* edx)                 { alMut
 static void* __fastcall alThErase(void* list, void* edx, void* res, void* node) {
     if (g_alMgr && (DWORD)(ULONG_PTR)list == g_alMgr + 0x98 && !g_alDirty) {
         AlSlot* ns = (g_alInPass && __readfsdword(0x24) == g_alPassTid) ? alFind(g_alNode, (DWORD)(ULONG_PTR)node) : NULL;
-        if (ns && ns->head >= 0 && !g_alEnt[ns->head].dead) { g_alEnt[ns->head].dead = 1; g_alErased++; }
-        else { g_alDirty = 1; g_alMut++; }
+        if (ns && ns->head >= 0 && !g_alEnt[ns->head].dead) { g_alEnt[ns->head].dead = 1; AL_STAT(g_alErased++); }
+        else { g_alDirty = 1; AL_STAT(g_alMut++); }
     }
     return ((tAlErase)(ULONG_PTR)AL_PRIM_ERASE)(list, edx, res, node);
 }

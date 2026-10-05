@@ -1,0 +1,157 @@
+name: Accelerator checks
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: accelerator-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  baseline-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Checkout pinned BFME II reference binary
+        uses: actions/checkout@v4
+        with:
+          repository: Open-BFME/Open-BFME-2
+          ref: bdc65d655b4f326e7a66939af2975b757a3098a1
+          path: baseline-reference
+          persist-credentials: false
+          sparse-checkout: baselines/bfme2/workshop-vanilla-1.06
+      - name: Audit reference without modifying it
+        run: |
+          python tools/accelerator_audit.py --image baseline-reference/baselines/bfme2/workshop-vanilla-1.06/files/game.dat > baseline-audit.json
+          python -c "import json; r=json.load(open('baseline-audit.json')); assert r['repository_baseline_matches']; assert r['recognized_build']=='BFME2'; assert not r['engine_hooks_enabled_by_build_table']; assert r['audio_loop_exact_hits']==['0x004576CB']"
+          cat baseline-audit.json
+      - name: Verify LAA copy and accelerator recognition
+        run: python tools/test_bfme2_laa.py baseline-reference/baselines/bfme2/workshop-vanilla-1.06/files/game.dat
+      - name: Test BFME II runtime byte guards
+        run: |
+          g++ -std=c++11 -O2 -Wall -Wextra -o /tmp/bfme2-audio-guard-test src/bfme2_audio_guard_test.cpp
+          python tools/check_audio_profile.py baseline-reference/baselines/bfme2/workshop-vanilla-1.06/files/game.dat /tmp/bfme2-audio-guard-test
+      - name: Check byte-identical SIMD packet transforms
+        run: |
+          g++ -std=c++11 -O2 -msse2 -Wall -Wextra -o /tmp/bfme2-packet-test src/bfme2_packet_algo_test.cpp
+          /tmp/bfme2-packet-test
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bfme2-baseline-audit
+          path: baseline-audit.json
+          retention-days: 14
+
+  windows-x86:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checkout pinned BFME II reference binary
+        uses: actions/checkout@v4
+        with:
+          repository: Open-BFME/Open-BFME-2
+          ref: bdc65d655b4f326e7a66939af2975b757a3098a1
+          path: baseline-reference
+          persist-credentials: false
+          sparse-checkout: baselines/bfme2/workshop-vanilla-1.06
+      - name: Checkout pinned VS2003 CRT reference
+        uses: actions/checkout@v4
+        with:
+          repository: Open-BFME/Open-BFME-1
+          ref: c0409ae46dd306661857c38c5542dc2f4608e7dc
+          path: crt-reference
+          persist-credentials: false
+          sparse-checkout: build/toolchains/vs2003/msvcr71.dll
+          sparse-checkout-cone-mode: false
+      - name: Verify LAA copy and accelerator recognition
+        shell: pwsh
+        run: |
+          python tools/test_bfme2_laa.py baseline-reference/baselines/bfme2/workshop-vanilla-1.06/files/game.dat
+          if ($LASTEXITCODE -ne 0) { throw "LAA copy validation failed" }
+      - name: Build debug and production DLLs, launcher and offline tests
+        shell: cmd
+        run: tools\ci_build.cmd
+      - name: Verify real x86 address-space limits on 64-bit Windows
+        shell: pwsh
+        run: |
+          & .\src\stock_address_test.exe stock
+          if ($LASTEXITCODE -ne 0) { throw "Non-LAA address-space check failed" }
+          & .\src\laa_address_test.exe enabled
+          if ($LASTEXITCODE -ne 0) { throw "LAA high-address allocation check failed" }
+      - name: Test BFME II runtime byte guards
+        shell: pwsh
+        run: |
+          python tools/check_audio_profile.py baseline-reference/baselines/bfme2/workshop-vanilla-1.06/files/game.dat src/bfme2_audio_guard_test.exe
+          if ($LASTEXITCODE -ne 0) { throw "BFME II audio guards failed" }
+      - name: Check audio indexing and logic operation order
+        shell: pwsh
+        working-directory: src
+        run: |
+          foreach ($seed in @(1, 777, 65535)) {
+            foreach ($skew in @(1, 16, 64)) {
+              & .\audiolimit_test.exe 0 $skew $seed
+              if ($LASTEXITCODE -ne 0) { throw "Audio equivalence failed: seed=$seed skew=$skew" }
+              & .\audiolimit_prod_test.exe 0 $skew $seed
+              if ($LASTEXITCODE -ne 0) { throw "Production audio equivalence failed: seed=$seed skew=$skew" }
+            }
+            & .\logicslicer_test.exe $seed
+            if ($LASTEXITCODE -ne 0) { throw "Logic order failed: seed=$seed" }
+          }
+      - name: Check CRT replacements and measure SIMD case comparisons
+        shell: pwsh
+        working-directory: src
+        run: |
+          $crt = (Resolve-Path ../crt-reference/build/toolchains/vs2003/msvcr71.dll).Path
+          & .\crt_test2.exe $crt --verify
+          if ($LASTEXITCODE -ne 0) { throw "CRT replacement equivalence failed" }
+          & .\crt_case_test.exe $crt | Tee-Object ../crt-case-results.txt
+          if ($LASTEXITCODE -ne 0) { throw "SIMD case comparisons failed" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: crt-case-equivalence-and-timings
+          path: crt-case-results.txt
+          retention-days: 14
+      - name: Compare native BFME II equivalence, sorting and detour behavior
+        shell: pwsh
+        working-directory: src
+        run: |
+          $game = (Resolve-Path ../baseline-reference/baselines/bfme2/workshop-vanilla-1.06/files/game.dat).Path
+          $crt = (Resolve-Path ../crt-reference/build/toolchains/vs2003/msvcr71.dll).Path
+          & .\bfme2_equiv_test.exe $game $crt | Tee-Object ../bfme2-equiv-results.txt
+          if ($LASTEXITCODE -ne 0) { throw "Native BFME II optimization checks failed" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bfme2-native-optimization-checks
+          path: bfme2-equiv-results.txt
+          retention-days: 14
+      - name: Package development build
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path ci-dist -Force | Out-Null
+          Copy-Item src/bfme2_accel.dll, src/bfme2_accel_loader.exe, packaging/README.txt ci-dist/
+          New-Item -ItemType Directory -Path ci-dist/tools -Force | Out-Null
+          Copy-Item tools/bfme2_laa.py, tools/accelerator_audit.py ci-dist/tools/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: accelerator-windows-x86-development
+          path: ci-dist/
+          retention-days: 14
+      - name: Check experimental abandoned-step robustness
+        shell: pwsh
+        working-directory: src
+        run: |
+          $failed = @()
+          foreach ($seed in @(1, 777, 65535)) {
+            & .\logicslicer_test.exe $seed 2
+            if ($LASTEXITCODE -ne 0) { $failed += $seed }
+          }
+          if ($failed.Count -gt 0) { throw "Abandoned-step robustness failed for seeds: $($failed -join ', '). Build artifacts remain available; do not promote logic spreading based on normal-order checks." }

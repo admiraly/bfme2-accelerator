@@ -13,6 +13,8 @@ static BYTE* makeTrampoline(BYTE*, int) { return NULL; }
 static BOOL patchJmp(BYTE*, void*, int) { return FALSE; }
 static void suspendOthers(HANDLE*, int* n, int) { *n = 0; }
 static void resumeAll(HANDLE*, int) {}
+// The model never installs live hooks, but the included installer must compile.
+static const char* aotrPath(char* out, const char* name) { lstrcpynA(out, name, MAX_PATH); return out; }
 static double g_tscPerQpc = 1.0; static LARGE_INTEGER g_pqpf;
 #define SUB_N 12
 static volatile LONG64 g_subT[SUB_N]; static DWORD g_subGlob[SUB_N];
@@ -86,9 +88,78 @@ static void engineStep(DWORD self, int pattern) {                               
         g_fakeTsc += 20000 + rnd() % 5000;                                         // the rest of the frame
     }
 }
+// A reference execution must not borrow an unfinished call's resume flags,
+// pending destroy entries, clock or subsystem counters from the sliced run.
+static void resetModel(DWORD self, bool sliced) {
+    memset(g_fakeLogic, 0, sizeof(g_fakeLogic));
+    *(DWORD*)(g_fakeLogic + 0x40) = 10;
+    g_fakeTsc = 1000; g_vecPending = 0; g_lost = 0; g_ops.clear();
+    g_lsWant = sliced ? 1 : 0; g_lsOn = sliced ? 1 : 0;
+    g_lsInstalled = sliced ? 1 : 0; g_lsThis = self;
+    g_lsStepFrame = 0; g_lsLastFrame = 10; g_lsNext = 7;
+    g_lsPaused = g_lsAfterLists = g_lsInDriver = g_lsResume = 0;
+    g_lsList = -1; g_lsIndex = 0; g_lsEngineN = 0; g_lsStepDriven = 0;
+    g_lsT0 = g_lsBudget = g_lsStepTicks = g_lsSubsAtStep = 0;
+    g_lsTotalEma = 10000; g_lsSubsEma = g_costSubs; g_lsFactor = 920;
+    g_lsExpect = -1; g_lsMinTicks = 1000;
+    for (int i = 0; i < 8; ++i) g_lsFrameTicks[i] = 0;
+    for (int i = 0; i < SUB_N; ++i) g_subT[i] = 0;
+}
+static void dispatchRange(DWORD self, DWORD last) {
+    for (DWORD n = 1; n <= last; ++n) {
+        lsFrameBegin(); ULONG64 t0 = g_fakeTsc;
+        modelUpdate(self, NULL, n);
+        lsFrameDone(n, g_fakeTsc - t0);
+        g_fakeTsc += 22000; // timing jitter must not consume simulation RNG
+    }
+}
+static int interruptedSteps(DWORD self, unsigned seed) {
+    long cases = 0, bad = 0, interrupted = 0;
+    LONG catchesBefore = g_lsCatchUp, pausesBefore = g_lsPausesList;
+    for (int round = 0; round < 400; ++round) {
+        for (int k = 0; k < 4; ++k) {
+            g_count[k] = 300 + (int)(rnd() % 600);
+            g_listMem[k][0] = 0x1000; g_listMem[k][1] = 0x1000 + 4 * g_count[k];
+        }
+        g_costModule = 20 + (int)(rnd() % 120);
+        g_costSubs = 2000 + (int)(rnd() % 30000);
+        g_costN2 = (int)(rnd() % 12000); g_costAI = (int)(rnd() % 4000);
+        for (DWORD cut = 2; cut <= 5; ++cut) {
+            unsigned savedRng = g_rng;
+            resetModel(self, false);
+            for (int step = 0; step < 2; ++step)
+                for (DWORD n = 1; n <= 6; ++n) body(self, n);
+            std::vector<Op> ref = g_ops;
+            resetModel(self, true); g_rng = savedRng;
+            dispatchRange(self, cut);
+            if (g_lsNext <= 6) ++interrupted;
+            // The next n=1 first finishes the prior logical step. That work
+            // belongs to the prior step, not a duplicate in the new step.
+            // Keep list topology and destroy entries intact until it drains.
+            dispatchRange(self, 6);
+            ++cases;
+            bool same = ref == g_ops;
+            if (!same || g_lost || g_vecPending || g_lsNext != 7) {
+                if (bad++ < 5) {
+                    printf("INTERRUPTED cut %u case %ld: ref %u ops, actual %u, lost %d, pending %d, next %d\n",
+                           cut, cases, (unsigned)ref.size(), (unsigned)g_ops.size(), g_lost, g_vecPending, (int)g_lsNext);
+                    for (size_t i = 0; i < ref.size() && i < g_ops.size(); ++i)
+                        if (!(ref[i] == g_ops[i])) { printf("  op %u: ref %d(%d,%d), actual %d(%d,%d)\n", (unsigned)i,
+                            ref[i].kind, ref[i].a, ref[i].b, g_ops[i].kind, g_ops[i].a, g_ops[i].b); break; }
+                }
+            }
+        }
+    }
+    LONG catches = g_lsCatchUp - catchesBefore, pauses = g_lsPausesList - pausesBefore;
+    if (!interrupted || !catches || !pauses || g_lsSeqBad) ++bad;
+    printf("seed %u: %ld interrupted-step cases, %ld unfinished, %d catch-ups, %d list pauses, %ld failures (full operation and destroy-payload comparison)\n",
+           seed, cases, interrupted, (int)catches, (int)pauses, bad);
+    return bad ? 1 : 0;
+}
 int main(int argc, char** argv) {
     if (argc > 1) g_rng = (unsigned)atoi(argv[1]);
     DWORD self = (DWORD)(ULONG_PTR)g_fakeLogic;
+    if (argc > 2 && atoi(argv[2]) == 2) return interruptedSteps(self, g_rng);
     g_subGlob[0] = 1; g_lsInstalled = 1; g_lsMinTicks = 1000;                     // the model's clock is in arbitrary units
     long steps = 0, bad = 0, sliced = 0; long long mods = 0;
     for (int round = 0; round < 400; ++round) {
