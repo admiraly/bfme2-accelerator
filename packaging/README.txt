@@ -36,10 +36,25 @@ headers directly, with bounded SIMD comparison and original locale fallback.
 Non-C locales keep the original CRT comparison for ASCII bytes too.
 All four retain stock comparisons and disable on detected mismatches.
 
-The loader injects changes into the running process; it does not rewrite game.dat.
+The accelerator loader injects changes into the running process; it does not
+rewrite game.dat. The separate optional LAA tool below creates a patched copy.
 Correctness tests do not establish battle performance, graphical/audio behavior,
 save/replay compatibility, multiplayer determinism or long-session stability.
 Those in-game checks remain outstanding. This is a testing build, not a release.
 
 Implementation and evidence:
 https://github.com/admiraly/bfme2-accelerator/pull/1
+
+Optional 4 GB address-space patch (64-bit Windows)
+------------------------------------------------
+Requires Python 3. Close the game. From this folder:
+
+  python tools/bfme2_laa.py "C:\Games\BFME II\game.dat" --output "C:\Games\BFME II\game.laa.dat"
+
+Substitute your actual installation path. Only the pinned vanilla 1.06 image
+and its LAA-only variant are accepted. Existing files are never overwritten.
+Keep original game.dat as game.dat.pre-laa, then rename game.laa.dat to game.dat.
+Restart the game. To undo, restore game.dat.pre-laa as game.dat.
+This raises the x86 virtual address-space ceiling from 2 GB to 4 GB on 64-bit
+Windows. High-address game stability is not yet tested. This is separate from
+the accelerator's runtime-only hooks; generating a copy does not install it.

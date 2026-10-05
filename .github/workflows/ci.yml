@@ -34,6 +34,8 @@ jobs:
           python tools/accelerator_audit.py --image baseline-reference/baselines/bfme2/workshop-vanilla-1.06/files/game.dat > baseline-audit.json
           python -c "import json; r=json.load(open('baseline-audit.json')); assert r['repository_baseline_matches']; assert r['recognized_build']=='BFME2'; assert not r['engine_hooks_enabled_by_build_table']; assert r['audio_loop_exact_hits']==['0x004576CB']"
           cat baseline-audit.json
+      - name: Verify LAA copy and accelerator recognition
+        run: python tools/test_bfme2_laa.py baseline-reference/baselines/bfme2/workshop-vanilla-1.06/files/game.dat
       - name: Test BFME II runtime byte guards
         run: |
           g++ -std=c++11 -O2 -Wall -Wextra -o /tmp/bfme2-audio-guard-test src/bfme2_audio_guard_test.cpp
@@ -66,9 +68,21 @@ jobs:
           persist-credentials: false
           sparse-checkout: build/toolchains/vs2003/msvcr71.dll
           sparse-checkout-cone-mode: false
+      - name: Verify LAA copy and accelerator recognition
+        shell: pwsh
+        run: |
+          python tools/test_bfme2_laa.py baseline-reference/baselines/bfme2/workshop-vanilla-1.06/files/game.dat
+          if ($LASTEXITCODE -ne 0) { throw "LAA copy validation failed" }
       - name: Build debug and production DLLs, launcher and offline tests
         shell: cmd
         run: tools\ci_build.cmd
+      - name: Verify real x86 address-space limits on 64-bit Windows
+        shell: pwsh
+        run: |
+          & .\src\stock_address_test.exe stock
+          if ($LASTEXITCODE -ne 0) { throw "Non-LAA address-space check failed" }
+          & .\src\laa_address_test.exe enabled
+          if ($LASTEXITCODE -ne 0) { throw "LAA high-address allocation check failed" }
       - name: Test BFME II runtime byte guards
         shell: pwsh
         run: |
@@ -120,6 +134,8 @@ jobs:
         run: |
           New-Item -ItemType Directory -Path ci-dist -Force | Out-Null
           Copy-Item src/bfme2_accel.dll, src/bfme2_accel_loader.exe, packaging/README.txt ci-dist/
+          New-Item -ItemType Directory -Path ci-dist/tools -Force | Out-Null
+          Copy-Item tools/bfme2_laa.py, tools/accelerator_audit.py ci-dist/tools/
       - uses: actions/upload-artifact@v4
         with:
           name: accelerator-windows-x86-development

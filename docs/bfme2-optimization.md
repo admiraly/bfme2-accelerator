@@ -44,6 +44,46 @@ Open-BFME-2's matched ledger also supplies source leads for:
 These are matched-ledger identities, not accelerator replacements. RVAs are
 relative to the image base; the audio-loop address above is a VA.
 
+## Large Address Aware copy
+
+The pinned vanilla 1.06 image has PE Characteristics `0x010F`, without LAA.
+`tools/bfme2_laa.py` creates a separate copy with Characteristics `0x012F`.
+Only bit `0x20` of the byte at file offset `0x136` changes. Code, imports,
+resources, image base and accelerator `.text` recognition remain identical.
+
+Python 3, from the checkout or the packaged development build:
+
+```bat
+python tools/bfme2_laa.py "C:\Games\BFME II\game.dat"
+python tools/bfme2_laa.py "C:\Games\BFME II\game.dat" --output "C:\Games\BFME II\game.laa.dat"
+```
+
+The first command only inspects and reports the proposed change. The second
+creates and verifies the new copy. Only the exact pinned baseline and its
+LAA-only variant are accepted. Other builds or modifications are refused;
+existing outputs and the original path are never overwritten. An already-LAA
+input produces an identical separate copy.
+
+Close the game before installing the copy. Keep the original as `game.dat.pre-laa`,
+then rename `game.laa.dat` to `game.dat` in the installation. Restart through the
+usual loader. To undo, restore `game.dat.pre-laa` as `game.dat`. Merely generating
+the copy does not change which executable the game loader launches; changing the
+flag in an already-running process would not change its launch-time address limit.
+
+On 64-bit Windows, LAA increases the x86 user virtual address-space ceiling from
+2 GB to 4 GB; it does not make the engine 64-bit or reduce memory consumption.
+See [Microsoft's address-space limits](https://learn.microsoft.com/en-us/windows/win32/memory/memory-limits-for-windows-releases).
+In-game behavior with allocations above 2 GB remains unvalidated. The allocator,
+engine and third-party DLLs may still have high-address assumptions.
+
+Patched-copy SHA256:
+`5de725b7e396400d48e1b103252756bd32a84cf014ee093f072fc5fc6f5e0f43`.
+CI checks the exact one-bit change, original preservation, refusal paths,
+idempotence and unchanged accelerator recognition on both Linux and Windows.
+Two x86 Windows probes, linked with and without LAA, also check actual OS limits
+and whether a page at address `0x90000000` can be allocated, written and read.
+These probes do not run the game. No game executable is included in build artifacts.
+
 ## Experimental BFME II audio index
 
 The 1.06 profile now binds the existing audio index independently of the global

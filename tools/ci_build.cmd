@@ -42,4 +42,8 @@ cl /nologo /O2 /MT /W3 /EHsc /Fe:rlsort_test.exe rlsort_test.cpp /link kernel32.
 if errorlevel 1 exit /b 1
 cl /nologo /O2 /MT /W3 /Fe:rt_harness.exe rt_harness.cpp /link kernel32.lib user32.lib
 if errorlevel 1 exit /b 1
+cl /nologo /O2 /MT /W3 /Fe:laa_address_test.exe laa_address_test.cpp /link kernel32.lib /LARGEADDRESSAWARE
+if errorlevel 1 exit /b 1
+cl /nologo /O2 /MT /W3 /Fe:stock_address_test.exe laa_address_test.cpp /link kernel32.lib /LARGEADDRESSAWARE:NO
+if errorlevel 1 exit /b 1
 exit /b 0

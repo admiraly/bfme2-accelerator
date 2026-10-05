@@ -102,6 +102,9 @@ def audit(accelerator, image):
     if len(text_sections) != 1:
         raise ValueError('exactly one .text section required')
     _, text_rva, text = text_sections[0]
+    pe, = struct.unpack_from('<I', data, 0x3c)
+    flags, = struct.unpack_from('<H', data, pe + 22)
+    laa = bool(flags & 0x20)
     source = (accelerator / 'src/aotr_accel.cpp').read_text()
     fingerprint = fnv1a(text)
     matches = [item for item in build_table(source) if item['text_hash'] == fingerprint]
@@ -126,6 +129,8 @@ def audit(accelerator, image):
         cursor = at + 1
     return dict(
         image_sha256=digest,
+        large_address_aware=laa,
+        user_va_limit_on_64bit_windows_gib=4 if laa else 2,
         repository_baseline_matches=digest == BASELINE_SHA256 and len(data) == BASELINE_SIZE,
         accelerator_source_sha256=hashlib.sha256(source.encode()).hexdigest(),
         image_base=f'0x{base:08X}', text_fnv1a=f'0x{fingerprint:08X}',
