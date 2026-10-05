@@ -29,17 +29,15 @@ template<bool Decode> static void __cdecl bfme2PacketChecked(void* buffer, int l
     if (call <= 20000 || !(call & 63)) bfme2PacketShadow<Decode>(buffer, length);
     else bfme2PacketTransform<Decode>(buffer, length);
 }
-static void __cdecl bfme2PacketEncode(void* p, int n) { bfme2PacketChecked<false>(p, n); }
-static void __cdecl bfme2PacketDecode(void* p, int n) { bfme2PacketChecked<true>(p, n); }
+static void __fastcall bfme2PacketEncode(void* p, int n) { bfme2PacketChecked<false>(p, n); }
+static void __fastcall bfme2PacketDecode(void* p, int n) { bfme2PacketChecked<true>(p, n); }
 // Send block inputs: ESI = packet slot, EDI = payload length, EBX = CRC.
 // Continuation returns AL=1 and restores EBX/EDI/ESI from its own stack.
 static __declspec(naked) void hkBfme2PacketSend() {
     __asm { mov [esi], ebx }
-    __asm { lea eax, [edi+4] }
-    __asm { push eax }
-    __asm { push esi }
+    __asm { lea edx, [edi+4] }
+    __asm { mov ecx, esi }
     __asm { call bfme2PacketEncode }
-    __asm { add esp, 8 }
     __asm { mov eax, 0x008D4F75 }
     __asm { jmp eax }
 }
@@ -47,11 +45,9 @@ static __declspec(naked) void hkBfme2PacketSend() {
 // ESI/EDI/EBP remain live; EBX, flags, EAX/ECX/EDX and the two loop-local
 // scratch slots are dead at the continuation (verified through the epilogue).
 static __declspec(naked) void hkBfme2PacketReceive() {
-    __asm { push edi }
-    __asm { lea eax, [ebp-0x438] }
-    __asm { push eax }
+    __asm { mov edx, edi }
+    __asm { lea ecx, [ebp-0x438] }
     __asm { call bfme2PacketDecode }
-    __asm { add esp, 8 }
     __asm { mov eax, 0x008D4DBF }
     __asm { jmp eax }
 }

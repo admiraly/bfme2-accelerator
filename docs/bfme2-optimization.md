@@ -410,3 +410,10 @@ bridge; a separate before/after inline-block benchmark reports the complete
 detour cost. These are small absolute savings and do not establish a measurable
 multiplayer or frame-rate improvement. Independent write-refusal checks verify
 that either direction can remain stock while the other installs.
+
+The complete inline benchmark exposed an initial 16-byte send regression
+(10.66 ns native versus 12.87 ns through the cdecl bridge), despite larger-packet
+speedups. The hook now passes buffer and length in ECX/EDX using a fastcall
+wrapper, removing argument pushes and caller stack cleanup. Native private-ABI
+oracle calls retain their original ECX/EAX convention. Recheck the inline timing
+rows when evaluating this build; helper-only timings do not prove a faster hook.
