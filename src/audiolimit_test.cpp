@@ -87,6 +87,12 @@ int main(int argc, char** argv) {
     printf("mode %d infos %d: passes %d, longest list %d | compared %d, differences %d | checks %d indexed %d rebuilds %d stale %d erased-in-pass %d other-changes %d faults %d too-big %d | proof compared %d mismatches %d live %d | illegal changes %d\n",
            g_mode, g_skew, (int)passes, (int)maxLen, (int)g_cmp, (int)g_diff, (int)g_alCalls, (int)g_alIdx, (int)g_alRebuilds, (int)g_alStale, (int)g_alErased, (int)g_alMut, (int)g_alFaults, (int)g_alTooBig,
            (int)g_alChecked, (int)g_alMismatch, (int)g_alLive, (int)g_illegal);
+#ifdef AOTR_PROD
+    if (g_mode == 0 && (g_alCalls || g_alTicks || g_alRebuilds || g_alWalkNodes || g_alIdxEnts ||
+                       g_alChecked || g_alMut || g_alPasses || g_alProofLeft || g_alIdx <= 20000)) {
+        printf("Production telemetry/proof invariant failed\n"); return 1;
+    }
+#endif
     if (g_mode == 0) return (g_diff || g_alMismatch || !g_alLive) ? 1 : 0;
     return 0;
 }

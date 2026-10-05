@@ -82,6 +82,8 @@ jobs:
             foreach ($skew in @(1, 16, 64)) {
               & .\audiolimit_test.exe 0 $skew $seed
               if ($LASTEXITCODE -ne 0) { throw "Audio equivalence failed: seed=$seed skew=$skew" }
+              & .\audiolimit_prod_test.exe 0 $skew $seed
+              if ($LASTEXITCODE -ne 0) { throw "Production audio equivalence failed: seed=$seed skew=$skew" }
             }
             & .\logicslicer_test.exe $seed
             if ($LASTEXITCODE -ne 0) { throw "Logic order failed: seed=$seed" }

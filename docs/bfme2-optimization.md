@@ -76,6 +76,38 @@ benchmark must measure both their cost and the saved traversal work.
 This is an experimental binding, not a measured speedup. Validate battle audio,
 long sessions, loading/saving, replays and multiplayer before changing defaults.
 
+## Further performance changes
+
+Case-insensitive ASCII comparisons now process 16 bytes with SSE2. The first
+mismatch, terminator or high-byte event is resolved in byte order. Non-ASCII
+comparisons retain the original CRT locale behavior; loads stay inside readable
+pages, and bounded comparisons do not load beyond their requested count. This
+uses the existing import replacement path and does not need engine addresses.
+
+An Actions measurement of equal ASCII strings on revision
+`2a2a55ba2180eab2fbc0f5e05d09ecb18bde55d7` produced:
+
+| Length | Previous scalar | SIMD | Previous / SIMD |
+| --- | --- | --- | --- |
+| 8 | 12.46 ns | 3.79 ns | 3.29x |
+| 16 | 22.73 ns | 5.41 ns | 4.20x |
+| 32 | 43.58 ns | 7.04 ns | 6.19x |
+| 64 | 85.89 ns | 10.29 ns | 8.35x |
+| 128 | 169.19 ns | 16.80 ns | 10.07x |
+| 256 | 341.26 ns | 29.84 ns | 11.44x |
+
+These are best-of-five function timings on a shared hosted runner, with alternating
+measurement order. They do not establish whole-game performance or the workload's
+mix of equal, unequal and non-ASCII names. Results are uploaded as an artifact;
+performance ratios are informational and never a CI acceptance threshold.
+
+Production audio builds now omit timestamp reads and diagnostic-only volatile
+counter writes. Mutation tracking, fault limits, mismatch disable, the initial
+20,000 stock comparisons and the subsequent one-in-64 cadence remain active.
+The production audio harness compares answers directly and checks that telemetry
+stays zero while proof comparisons complete. Use the diagnostic DLL when counters
+are needed; use the production DLL for battle performance measurements.
+
 ## Next implementation steps
 
 1. Validate the opt-in audio binding in a running game. Profile indexed and
@@ -112,7 +144,13 @@ The BFME II audio guard test runs the runtime guard routine against the pinned
 mapped image, then changes every guarded byte individually and requires rejection.
 Neither test executes the game binary.
 
-The CRT test is compiled but needs the original `msvcr71.dll` to run. The sort
+The CRT test runs against the pinned VS2003 `msvcr71.dll` from Open-BFME-1
+revision `c0409ae46dd306661857c38c5542dc2f4608e7dc`, file
+`build/toolchains/vs2003/msvcr71.dll` (Git blob
+`9d9e0286c47f2e63f2ab89960332a85204f484ef`). The SIMD case test adds
+6,891,456 exact-return cases, every byte pair at every SIMD lane and
+protected-page checks. An installed game's CRT may differ; this pinned toolchain
+reference does not establish that every installation uses that exact DLL. The sort
 test is compiled but currently expects the donor RotWK addresses. Render
 equivalence needs D3D9/D3DX and an appropriate graphics environment. No battle
 benchmark, multiplayer validation or speedup claim is supplied by this CI.

@@ -26,6 +26,8 @@ cl /nologo /O2 /MT /W3 /Fe:bfme2_accel_loader.exe launcher.cpp launcher.res /lin
 if errorlevel 1 exit /b 1
 cl /nologo /O2 /MT /W3 /EHa /Fe:audiolimit_test.exe audiolimit_test.cpp /link kernel32.lib
 if errorlevel 1 exit /b 1
+cl /nologo /O2 /MT /W3 /EHa /DAOTR_PROD /Fe:audiolimit_prod_test.exe audiolimit_test.cpp /link kernel32.lib
+if errorlevel 1 exit /b 1
 cl /nologo /O2 /MT /W3 /EHa /Fe:logicslicer_test.exe logicslicer_test.cpp /link kernel32.lib
 if errorlevel 1 exit /b 1
 cl /nologo /O2 /MT /W3 /EHsc /Fe:bfme2_audio_guard_test.exe bfme2_audio_guard_test.cpp
