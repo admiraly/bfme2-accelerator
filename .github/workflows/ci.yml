@@ -1,0 +1,74 @@
+name: Accelerator checks
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: accelerator-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  baseline-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Checkout pinned BFME II reference binary
+        uses: actions/checkout@v4
+        with:
+          repository: Open-BFME/Open-BFME-2
+          ref: bdc65d655b4f326e7a66939af2975b757a3098a1
+          path: baseline-reference
+          persist-credentials: false
+          sparse-checkout: baselines/bfme2/workshop-vanilla-1.06
+      - name: Audit reference without modifying it
+        run: |
+          python tools/accelerator_audit.py --image baseline-reference/baselines/bfme2/workshop-vanilla-1.06/files/game.dat > baseline-audit.json
+          python -c "import json; r=json.load(open('baseline-audit.json')); assert r['repository_baseline_matches']; assert r['recognized_build']=='BFME2'; assert not r['engine_hooks_enabled_by_build_table']; assert r['audio_loop_exact_hits']==['0x004576CB']"
+          cat baseline-audit.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bfme2-baseline-audit
+          path: baseline-audit.json
+          retention-days: 14
+
+  windows-x86:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build debug and production DLLs, launcher and offline tests
+        shell: cmd
+        run: tools\ci_build.cmd
+      - name: Check audio indexing and logic operation order
+        shell: pwsh
+        working-directory: src
+        run: |
+          foreach ($seed in @(1, 777, 65535)) {
+            foreach ($skew in @(1, 16, 64)) {
+              & .\audiolimit_test.exe 0 $skew $seed
+              if ($LASTEXITCODE -ne 0) { throw "Audio equivalence failed: seed=$seed skew=$skew" }
+            }
+            foreach ($pattern in @(0, 2)) {
+              & .\logicslicer_test.exe $seed $pattern
+              if ($LASTEXITCODE -ne 0) { throw "Logic order failed: seed=$seed pattern=$pattern" }
+            }
+          }
+      - name: Package development build
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path ci-dist -Force | Out-Null
+          Copy-Item src/bfme2_accel.dll, src/bfme2_accel_loader.exe, packaging/README.txt ci-dist/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: accelerator-windows-x86-development
+          path: ci-dist/
+          retention-days: 14

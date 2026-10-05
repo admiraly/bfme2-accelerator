@@ -1,5 +1,8 @@
 # BFME2 Accelerator
 
+This fork's BFME II optimization work, reproducible baseline audit and CI coverage
+are documented in [the optimization track](docs/bfme2-optimization.md).
+
 An in-process accelerator for *The Lord of the Rings: The Battle for Middle-earth II* and *The Rise of the
 Witch-king* (EA SAGE engine, 2006), and for the mods built on them. It is a 32-bit DLL that a small loader
 injects into `game.dat` at startup.
