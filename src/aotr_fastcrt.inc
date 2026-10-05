@@ -193,8 +193,9 @@ static int __cdecl fastStricmp(const char* a, const char* b) {
 }
 static int __cdecl fastStrnicmp(const char* a, const char* b, size_t n) {
     size_t i = 0;
-    while (i < n) {
-        if (n - i >= 16 && CRT_PAGE_SAFE(a + i, b + i)) {
+    for (;;) {
+        // Keep the full-width hot loop separate from short/page-tail handling.
+        while (n - i >= 16 && CRT_PAGE_SAFE(a + i, b + i)) {
             unsigned events = crtCaseEvents(_mm_loadu_si128((const __m128i*)(a + i)), _mm_loadu_si128((const __m128i*)(b + i)));
             if (!events) { i += 16; continue; }
             unsigned long k; _BitScanForward(&k, events);
@@ -203,6 +204,14 @@ static int __cdecl fastStrnicmp(const char* a, const char* b, size_t n) {
             int la = crtLowerAscii(ca), lb = crtLowerAscii(cb);
             return la == lb ? 0 : (la < lb ? -1 : 1);
         }
+        if (i == n) return 0;
+        // An early scalar event wins before narrow SIMD setup. Do not consume
+        // an equal byte: the following load can still cover the full short span.
+        BYTE ca = (BYTE)a[i], cb = (BYTE)b[i];
+        if ((ca | cb) & 0x80) return o_crtStrnicmp(a, b, n);
+        int la = crtLowerAscii(ca), lb = crtLowerAscii(cb);
+        if (la != lb) return la < lb ? -1 : 1;
+        if (!ca) return 0;
         // Bounded names shorter than 16 bytes still benefit from SIMD.
         // Narrow loads stay within both pages and the remaining count.
         if (n - i >= 8 && (((((size_t)(a + i)) | ((size_t)(b + i))) & 4095) <= 4088)) {
@@ -223,13 +232,8 @@ static int __cdecl fastStrnicmp(const char* a, const char* b, size_t n) {
             int la = crtLowerAscii(ca), lb = crtLowerAscii(cb);
             return la == lb ? 0 : (la < lb ? -1 : 1);
         }
-        BYTE ca = (BYTE)a[i], cb = (BYTE)b[i]; ++i;
-        if ((ca | cb) & 0x80) return o_crtStrnicmp(a, b, n);
-        int la = crtLowerAscii(ca), lb = crtLowerAscii(cb);
-        if (la != lb) return la < lb ? -1 : 1;
-        if (!ca) return 0;
+        ++i;
     }
-    return 0;
 }
 
 // --- floor and ceil. msvcr71 dispatches on an SSE2 flag and juggles mxcsr on every call (5.5 ns); roundsd does it

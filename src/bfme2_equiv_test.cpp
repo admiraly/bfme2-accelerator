@@ -280,7 +280,7 @@ static int stringTests() {
             if (oldTime < iatBest) iatBest = oldTime;
             if (hookTime < hookBest) hookBest = hookTime;
         }
-        printf("StringBase %3u bytes: untouched %.2f ns, current SIMD IAT %.2f ns, full hook %.2f ns, previous/hook %.2fx\n",
+        printf("StringBase %3u bytes: untouched %.2f ns, current SIMD IAT %.2f ns, full hook %.2f ns, import/hook %.2fx\n",
                length, untouchedBest, iatBest, hookBest, iatBest / hookBest);
     }
     *(DWORD*)0xBBA690 = (DWORD)(ULONG_PTR)o_crtStrnicmp;
