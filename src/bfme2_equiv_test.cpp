@@ -25,6 +25,8 @@ static BOOL patchJmp(BYTE* target, void* destination, int stolen) {
 }
 static void suspendOthers(HANDLE*, int*, int) {}
 static void resumeAll(HANDLE*, int) {}
+#include "aotr_fastcrt.inc"
+#include "bfme2_stringfast.inc"
 #include "bfme2_equivfast.inc"
 #include "aotr_rlsort_algo.h"
 #include "bfme2_rlsort.inc"
@@ -95,6 +97,7 @@ static double timing(tIsEquiv function, void* a, void* b) {
 }
 static int installationTests();
 static int sortTests();
+static int stringTests();
 static int child(const char* crtPath) {
     BYTE* image = (BYTE*)0x400000;
     if (!bfme2EquivProfileMatches(image)) return 2;
@@ -110,7 +113,7 @@ static int child(const char* crtPath) {
     }
     HMODULE crt = LoadLibraryA(crtPath);
     FARPROC compare = crt ? GetProcAddress(crt, "_strnicmp") : NULL;
-    if (!compare) return 2;
+    if (!compare || !crtPrepare(crt)) return 2;
     // The original bounded string comparator calls this IAT slot. Resolve it
     // for the test image; no game startup, constructors or entry point run.
     *(DWORD*)0x00BBA690 = (DWORD)(ULONG_PTR)compare;
@@ -172,7 +175,117 @@ static int child(const char* crtPath) {
         printf("empty lists, override depth %u: stock %.2f ns, full hook %.2f ns, stock/hook %.2fx\n",
                depth, stockBest, fastBest, stockBest / fastBest);
     }
+    if (stringTests()) return 1;
     return sortTests();
+}
+typedef int (__cdecl* tBfme2StringCompare)(const char*, int, const char*, int, int);
+static tBfme2StringCompare o_bfme2StringCompare = (tBfme2StringCompare)0x405841;
+static int __cdecl boundedResult(const char* a, int la, const char* b, int lb, int) {
+    int r = fastStrnicmp(a, b, la < lb ? la : lb);
+    return r ? r : la - lb;
+}
+static int stringTests() {
+    if (!bfme2StringProfileMatches((BYTE*)0x400000)) return 2;
+    const DWORD guardAddresses[] = {0x405841, 0x406A00};
+    const unsigned guardSizes[] = {sizeof(kBfme2StringCompare), sizeof(kBfme2StringNoCase)};
+    for (unsigned guard = 0; guard < 2; ++guard) for (unsigned i = 0; i < guardSizes[guard]; ++i) {
+        BYTE& value = *(BYTE*)(ULONG_PTR)(guardAddresses[guard] + i); value ^= 1;
+        bool rejected = !bfme2StringProfileMatches((BYTE*)0x400000); value ^= 1;
+        if (!rejected) return 1;
+    }
+    o_bfme2StringCompare = (tBfme2StringCompare)0x405841;
+    BYTE* a = (BYTE*)VirtualAlloc(NULL, 12288, MEM_RESERVE, PAGE_NOACCESS);
+    BYTE* b = (BYTE*)VirtualAlloc(NULL, 12288, MEM_RESERVE, PAGE_NOACCESS);
+    if (!a || !b || !VirtualAlloc(a + 4096, 4096, MEM_COMMIT, PAGE_READWRITE) ||
+        !VirtualAlloc(b + 4096, 4096, MEM_COMMIT, PAGE_READWRITE)) return 2;
+    unsigned long cases = 0;
+    for (unsigned trial = 0; trial < 500000; ++trial) {
+        unsigned la = random32() % 257, lb = random32() % 257;
+        char* p = (char*)a + 8192 - la;
+        char* q = (char*)b + 8192 - lb;
+        unsigned mode = trial % 6;
+        for (unsigned i = 0; i < la; ++i) p[i] = mode == 0 ? 'A' : mode == 1 ? 'x' : (char)(random32() % 256);
+        for (unsigned i = 0; i < lb; ++i) q[i] = mode == 0 ? 'a' : mode == 1 ? 'x' : (char)(random32() % 256);
+        // No readable terminator is required: these are length-bounded spans.
+        for (int flag : {0,1,255}) {
+            int stock = o_bfme2StringCompare(p, la, q, lb, flag);
+            int fast = boundedResult(p, la, q, lb, flag);
+            if (stock != fast || g_bfme2StringOff) { printf("String helper mismatch trial=%u\n", trial); return 1; }
+            ++cases;
+        }
+    }
+    // Every byte pair at each SIMD lane, with high bytes after the first event.
+    for (unsigned lane = 0; lane < 16; ++lane) for (unsigned x = 0; x < 256; ++x) for (unsigned y = 0; y < 256; ++y) {
+        char* p = (char*)a + 4096; char* q = (char*)b + 4096;
+        memset(p, 'A', 64); memset(q, 'a', 64);
+        p[lane] = (char)x; q[lane] = (char)y; p[lane + 1] = (char)0xC0; q[lane + 1] = (char)0xDF;
+        for (unsigned n : {lane, lane + 1, 64u}) {
+            int stock = o_bfme2StringCompare(p, n, q, n, 0);
+            int fast = boundedResult(p, n, q, n, 0);
+            if (stock != fast || g_bfme2StringOff) return 1;
+            ++cases;
+        }
+    }
+    printf("BFME II bounded string helper: %lu native cases, 86 guard mutations rejected, exact returns and protected-page bounds passed\n", cases);
+    o_bfme2StringNoCase = (tBfme2StringNoCase)0x406A00;
+    g_bfme2StringCalls = 0;
+    unsigned long memberCases = 0;
+    for (unsigned trial = 0; trial < 500000; ++trial) {
+        unsigned la = random32() % 257, lb = random32() % 257;
+        BYTE* pa = a + 8192 - la - 8; BYTE* pb = b + 8192 - lb - 8;
+        *(DWORD*)pa = *(DWORD*)pb = 100;
+        *(WORD*)(pa + 4) = *(WORD*)(pa + 6) = (WORD)la;
+        *(WORD*)(pb + 4) = *(WORD*)(pb + 6) = (WORD)lb;
+        for (unsigned i = 0; i < la; ++i) pa[8 + i] = trial % 4 == 0 ? 'A' : (BYTE)random32();
+        for (unsigned i = 0; i < lb; ++i) pb[8 + i] = trial % 4 == 0 ? 'a' : (BYTE)random32();
+        DWORD ha = trial % 17 == 0 ? 0 : (DWORD)(ULONG_PTR)pa;
+        DWORD hb = trial % 23 == 0 ? 0 : (DWORD)(ULONG_PTR)pb;
+        int stock = o_bfme2StringNoCase(&ha, NULL, &hb);
+        int fast = hkBfme2StringNoCase(&ha, NULL, &hb);
+        if (stock != fast || g_bfme2StringOff) { printf("StringBase mismatch trial=%u\n", trial); return 1; }
+        ++memberCases;
+    }
+    std::vector<BYTE> largeA(65543), largeB(65543);
+    memset(largeA.data() + 8, 'A', 65535); memset(largeB.data() + 8, 'a', 65535);
+    DWORD ha = (DWORD)(ULONG_PTR)largeA.data(), hb = (DWORD)(ULONG_PTR)largeB.data();
+    for (unsigned la : {0u,32767u,32768u,65534u,65535u}) for (unsigned lb : {0u,32767u,32768u,65534u,65535u}) {
+        *(WORD*)(largeA.data() + 4) = (WORD)la; *(WORD*)(largeB.data() + 4) = (WORD)lb;
+        if (o_bfme2StringNoCase(&ha, NULL, &hb) != hkBfme2StringNoCase(&ha, NULL, &hb)) return 1;
+        ++memberCases;
+    }
+    printf("BFME II StringBase: %lu native-header cases, null headers, full 16-bit lengths and protected-page bounds passed\n", memberCases);
+    // Compare against our existing accelerated import path as well as stock.
+    for (unsigned length : {8u,16u,32u,64u,128u}) {
+        BYTE* pa = a + 4096; BYTE* pb = b + 4096;
+        *(WORD*)(pa + 4) = *(WORD*)(pb + 4) = (WORD)length;
+        memset(pa + 8, 'A', length); memset(pb + 8, 'a', length);
+        DWORD ha = (DWORD)(ULONG_PTR)pa, hb = (DWORD)(ULONG_PTR)pb;
+        double untouchedBest = 1e9, iatBest = 1e9, hookBest = 1e9;
+        auto measure = [&](tBfme2StringNoCase fn) {
+            LARGE_INTEGER f, begin, end; QueryPerformanceFrequency(&f);
+            for (int i = 0; i < 10000; ++i) sink = fn(&ha, NULL, &hb);
+            QueryPerformanceCounter(&begin);
+            for (int i = 0; i < 1000000; ++i) sink = fn(&ha, NULL, &hb);
+            QueryPerformanceCounter(&end);
+            return double(end.QuadPart - begin.QuadPart) * 1e9 / f.QuadPart / 1000000;
+        };
+        for (unsigned round = 0; round < 5; ++round) {
+            *(DWORD*)0xBBA690 = (DWORD)(ULONG_PTR)o_crtStrnicmp;
+            double untouched = measure(o_bfme2StringNoCase);
+            *(DWORD*)0xBBA690 = (DWORD)(ULONG_PTR)fastStrnicmp;
+            double oldTime, hookTime;
+            if (round & 1) { hookTime = measure(hkBfme2StringNoCase); oldTime = measure(o_bfme2StringNoCase); }
+            else { oldTime = measure(o_bfme2StringNoCase); hookTime = measure(hkBfme2StringNoCase); }
+            if (untouched < untouchedBest) untouchedBest = untouched;
+            if (oldTime < iatBest) iatBest = oldTime;
+            if (hookTime < hookBest) hookBest = hookTime;
+        }
+        printf("StringBase %3u bytes: untouched %.2f ns, previous SIMD IAT %.2f ns, full hook %.2f ns, previous/hook %.2fx\n",
+               length, untouchedBest, iatBest, hookBest, iatBest / hookBest);
+    }
+    *(DWORD*)0xBBA690 = (DWORD)(ULONG_PTR)o_crtStrnicmp;
+    VirtualFree(a, 0, MEM_RELEASE); VirtualFree(b, 0, MEM_RELEASE);
+    return 0;
 }
 struct FakeMesh { DWORD vt; LONG refs; BYTE pad[0xC4 - 8]; DWORD model; BYTE pad2[0x310 - 0xC8]; DWORD instance; };
 static std::vector<DWORD> sequence;
@@ -261,20 +374,22 @@ static BYTE __fastcall wrongEquivalence(void*, void*, void*) { return 1; }
 static void __cdecl wrongSort(RlEl* begin, RlEl*, tRlPred) { begin->w[1] ^= 0x55; }
 static int installationTests() {
     // Before touching entry points, exercise opt-out and failure paths.
+    SetEnvironmentVariableA("BFME2_STRINGFAST", NULL);
     SetEnvironmentVariableA("BFME2_EQUIVFAST", NULL); SetEnvironmentVariableA("BFME2_RLSORT", NULL);
-    installBfme2EquivFast((BYTE*)0x400000); installBfme2RlSort((BYTE*)0x400000);
-    if (!bfme2EquivProfileMatches((BYTE*)0x400000) || !bfme2RlProfileMatches((BYTE*)0x400000)) return 1;
+    installBfme2EquivFast((BYTE*)0x400000); installBfme2RlSort((BYTE*)0x400000); installBfme2StringFast((BYTE*)0x400000);
+    if (!bfme2EquivProfileMatches((BYTE*)0x400000) || !bfme2RlProfileMatches((BYTE*)0x400000) || !bfme2StringProfileMatches((BYTE*)0x400000)) return 1;
+    SetEnvironmentVariableA("BFME2_STRINGFAST", "1");
     SetEnvironmentVariableA("BFME2_EQUIVFAST", "1"); SetEnvironmentVariableA("BFME2_RLSORT", "1");
     for (unsigned failure = 0; failure < 3; ++failure) {
         failAllocation = failure == 0; failPatch = failure == 1;
-        if (failure == 2) { *(BYTE*)0x73BB04 ^= 1; *(BYTE*)0x574870 ^= 1; }
-        installBfme2EquivFast((BYTE*)0x400000); installBfme2RlSort((BYTE*)0x400000);
-        if (failure == 2) { *(BYTE*)0x73BB04 ^= 1; *(BYTE*)0x574870 ^= 1; }
-        if (!bfme2EquivProfileMatches((BYTE*)0x400000) || !bfme2RlProfileMatches((BYTE*)0x400000)) return 1;
+        if (failure == 2) { *(BYTE*)0x73BB04 ^= 1; *(BYTE*)0x574870 ^= 1; *(BYTE*)0x406A00 ^= 1; }
+        installBfme2EquivFast((BYTE*)0x400000); installBfme2RlSort((BYTE*)0x400000); installBfme2StringFast((BYTE*)0x400000);
+        if (failure == 2) { *(BYTE*)0x73BB04 ^= 1; *(BYTE*)0x574870 ^= 1; *(BYTE*)0x406A00 ^= 1; }
+        if (!bfme2EquivProfileMatches((BYTE*)0x400000) || !bfme2RlProfileMatches((BYTE*)0x400000) || !bfme2StringProfileMatches((BYTE*)0x400000)) return 1;
     }
     failAllocation = failPatch = false;
-    installBfme2EquivFast((BYTE*)0x400000); installBfme2RlSort((BYTE*)0x400000);
-    if (!o_bfme2Equiv || !o_bfme2RlSort || *(BYTE*)0x73BB04 != 0xE9 || *(BYTE*)0x574870 != 0xE9) return 1;
+    installBfme2EquivFast((BYTE*)0x400000); installBfme2RlSort((BYTE*)0x400000); installBfme2StringFast((BYTE*)0x400000);
+    if (!o_bfme2Equiv || !o_bfme2RlSort || !o_bfme2StringNoCase || *(BYTE*)0x406A00 != 0xE9 || *(BYTE*)0x73BB04 != 0xE9 || *(BYTE*)0x574870 != 0xE9) return 1;
     tIsEquiv entry = (tIsEquiv)0x73BB04;
     FakeTemplate a = {}, b = {};
     if (entry(a.data, NULL, b.data) || !entry(a.data, NULL, a.data) || entry(NULL, NULL, NULL)) return 1;

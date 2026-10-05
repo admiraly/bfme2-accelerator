@@ -1451,6 +1451,7 @@ static void __fastcall hkAnTree(void* ecx, void* edx) {
 #include "aotr_equivmemo.inc"
 #include "bfme2_equivfast.inc"
 #include "aotr_fastcrt.inc"
+#include "bfme2_stringfast.inc"
 static void installPhaseTimers() {
     __try {
         static const BYTE kLogicPre[] = {0x55,0x56,0x57,0x68,0x50,0xE3,0xBF,0x00};
@@ -2785,6 +2786,7 @@ static DWORD WINAPI initThread(LPVOID) {
             installBfme2AudioIndex(base);
             installBfme2EquivFast(base);
             installBfme2RlSort(base);
+            installBfme2StringFast(base);
         }
 #ifndef AOTR_PROD
         CreateThread(NULL, 0, rtReport, NULL, 0, NULL);
