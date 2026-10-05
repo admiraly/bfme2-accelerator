@@ -1,7 +1,7 @@
 # BFME II optimization track
 
 This fork is the implementation home for extending the accelerator to BFME II.
-Open-BFME-1 and Open-BFME-2 supply reference evidence; the five verified BFME II 1.06 bindings are enabled by default. Other
+Open-BFME-1 and Open-BFME-2 supply reference evidence; the six verified BFME II 1.06 bindings are enabled by default. Other
 engine-specific hooks remain disabled until their target addresses, ABI and
 touched layouts are verified. Set the relevant `BFME2_*` variable to `0` to
 disable a verified binding; no environment setup is needed to enable it.
@@ -424,3 +424,30 @@ completely. On sends it also avoids writing only the four-byte CRC immediately
 before loading a 16-byte vector from the same address. Native private-ABI
 oracle calls retain their original ECX/EAX convention. Recheck the inline timing
 rows when evaluating this build; helper-only timings do not prove a faster hook.
+
+
+## Default exact packet and RNG hash
+
+`BFME2_CRCFAST=0` disables the default binding at VA `0x007EC8F7`.
+This native helper computes rotate-left-by-one plus each unsigned input byte,
+with 32-bit wrapping after every byte. It is not IEEE CRC32 or CRC32C. The
+independently implemented replacement uses a rotate instruction and an
+8-byte unroll without regrouping additions, which would alter carry behavior.
+Null input returns the initial hash even for a nonzero length; an empty range
+is never read. The function writes neither input bytes nor RNG state.
+
+The entire 43-byte helper is guarded, including RET (the reconstruction comment
+counts 42 bytes and omits that final instruction). The six-byte stolen prologue
+contains only whole instructions. A trampoline preserves the original cdecl
+oracle; the first 20,000 nonempty calls per thread and one in 64 thereafter are
+compared with stock. Mismatches retain stock hashes and disable the replacement.
+Allocation, guard and write failures leave the original entry intact.
+
+Tests compare an independent carry/add oracle on Linux and the actual mapped
+native helper on Windows. They cover arbitrary initial hashes, all byte values,
+alignments, null/empty inputs and protected-page ends. Windows also exercises
+the original RNG checksum getter at `0x00633F70` against its six-word state at
+`0x00DBA3D0`, checking both the hash and unchanged seed bytes after installation.
+Complete entry-point benchmarks include detour and sampled-proof overhead.
+These tests establish function equivalence, not full multiplayer determinism or
+an overall lag/FPS gain; live sessions remain untested.

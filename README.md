@@ -3,7 +3,8 @@
 This fork's BFME II optimization work, reproducible baseline audit and CI coverage
 are documented in [the optimization track](docs/bfme2-optimization.md).
 For recognized vanilla 1.06, verified audio indexing, template equivalence, render
-sorting, native string comparisons and packet processing are enabled by default.
+sorting, native string comparisons, packet processing and exact packet/RNG
+hashing are enabled by default.
 No environment setup is required; individual `BFME2_*` variables set to `0`
 disable a feature for troubleshooting. Build/byte guards and stock fallbacks
 remain in place. Whole-game and multiplayer validation remain outstanding.

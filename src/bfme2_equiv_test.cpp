@@ -30,6 +30,7 @@ static void resumeAll(HANDLE*, int) {}
 #include "aotr_fastcrt.inc"
 #include "bfme2_stringfast.inc"
 #include "bfme2_packetfast.inc"
+#include "bfme2_crcfast.inc"
 #include "bfme2_equivfast.inc"
 #include "aotr_rlsort_algo.h"
 #include "bfme2_rlsort.inc"
@@ -102,6 +103,7 @@ static int installationTests();
 static int sortTests();
 static int stringTests();
 #include "bfme2_packet_test.inc"
+#include "bfme2_crc_test.inc"
 
 static int child(const char* crtPath) {
     BYTE* image = (BYTE*)0x400000;
@@ -498,7 +500,7 @@ static int installationTests() {
     return 0;
 }
 static int featureDefaultTests() {
-    const char* names[] = {"BFME2_AUDIOINDEX", "BFME2_EQUIVFAST", "BFME2_RLSORT", "BFME2_STRINGFAST", "BFME2_NETFAST"};
+    const char* names[] = {"BFME2_AUDIOINDEX", "BFME2_EQUIVFAST", "BFME2_RLSORT", "BFME2_STRINGFAST", "BFME2_NETFAST", "BFME2_CRCFAST"};
     for (const char* name : names) {
         SetEnvironmentVariableA(name, NULL);
         if (!bfme2FeatureEnabled(name)) return 1;
@@ -512,14 +514,16 @@ static int featureDefaultTests() {
         }
         SetEnvironmentVariableA(name, NULL);
     }
-    puts("BFME II feature policy: all five default ON, explicit opt-out and invalid-value refusal passed");
+    puts("BFME II feature policy: all six default ON, explicit opt-out and invalid-value refusal passed");
     return 0;
 }
 static int networkChild(const char* crtPath) {
     if (featureDefaultTests()) return 1;
     int result = child(crtPath);
     if (result) return result;
-    return packetTests();
+    result = packetTests();
+    if (result) return result;
+    return crcTests();
 }
 int main(int argc, char** argv) {
     if (argc == 3 && !strcmp(argv[1], "child")) return networkChild(argv[2]);

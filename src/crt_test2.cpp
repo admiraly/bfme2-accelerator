@@ -212,6 +212,60 @@ int main(int argc, char** argv) {
     }
     printf("floor / ceil: %ld comparisons over 7 control words, %d mismatches\n", nF, g_fail - fl);
 
+    // Determinism audit: compare values and preserved floating-point controls
+    // across x87 precision/rounding plus MXCSR rounding, DAZ, FTZ and sticky flags.
+    // Status flags are recorded separately: C math APIs do not promise identical
+    // exception-status side effects, and a difference is not proof of a desync.
+    {
+        WORD savedCw; __asm fnstcw savedCw
+        unsigned savedMxcsr = _mm_getcsr();
+        const WORD words[] = {0x027F, 0x007F, 0x037F, 0x0E7F, 0x0A7F, 0x067F};
+        const unsigned __int64 special[] = {
+            0, 0x8000000000000000ull, 1, 0x8000000000000001ull,
+            0x000FFFFFFFFFFFFFull, 0x800FFFFFFFFFFFFFull,
+            0x0010000000000000ull, 0x8010000000000000ull,
+            0x3FE0000000000000ull, 0xBFE0000000000000ull,
+            0x3FF0000000000000ull, 0xBFF0000000000000ull,
+            0x432FFFFFFFFFFFFFull, 0x4330000000000001ull,
+            0x7FEFFFFFFFFFFFFFull, 0xFFEFFFFFFFFFFFFFull,
+            0x7FF0000000000000ull, 0xFFF0000000000000ull,
+            0x7FF8000000000000ull, 0x7FF0000000000001ull
+        };
+        unsigned cases = 0, flagDifferences = 0; int before = g_fail;
+        for (WORD cw : words) for (unsigned mode = 0; mode < 32; ++mode) {
+            unsigned mxcsr = 0x1F80 | ((mode & 3) << 13) |
+                ((mode & 4) ? 0x40 : 0) | ((mode & 8) ? 0x8000 : 0) |
+                ((mode & 16) ? 0x3F : 0);
+            for (unsigned i = 0; i < 276; ++i) {
+                unsigned __int64 bits = i < 20 ? special[i] : rnd();
+                double x; memcpy(&x, &bits, 8);
+                for (unsigned ceil = 0; ceil < 2; ++ceil) {
+                    double stock, fast; unsigned stockMxcsr, fastMxcsr; WORD stockCw, fastCw;
+                    __asm fnclex
+                    __asm fldcw cw
+                    _mm_setcsr(mxcsr);
+                    stock = ceil ? o_crtCeil(x) : o_crtFloor(x);
+                    stockMxcsr = _mm_getcsr(); __asm fnstcw stockCw
+                    __asm fnclex
+                    __asm fldcw cw
+                    _mm_setcsr(mxcsr);
+                    fast = ceil ? fastCeil(x) : fastFloor(x);
+                    fastMxcsr = _mm_getcsr(); __asm fnstcw fastCw
+                    __asm fldcw savedCw
+                    __asm fnclex
+                    _mm_setcsr(savedMxcsr);
+                    if (memcmp(&stock, &fast, 8) || stockCw != fastCw ||
+                        ((stockMxcsr ^ fastMxcsr) & ~0x3Fu)) {
+                        if (g_fail++ < 25) printf("MISMATCH FP-state %s cw=%04X mxcsr=%04X bits=%016I64X stockcsr=%04X fastcsr=%04X\n", ceil ? "ceil" : "floor", cw, mxcsr, bits, stockMxcsr, fastMxcsr);
+                    }
+                    if ((stockMxcsr ^ fastMxcsr) & 0x3F) ++flagDifferences;
+                    ++cases;
+                }
+            }
+        }
+        printf("FP determinism matrix: %u native comparisons, %d value/control mismatches, %u status-flag differences (diagnostic only)\n", cases, g_fail - before, flagDifferences);
+    }
+
     // ---- installFastCrt against a hand-built image whose import descriptor has NO name table, which is what both
     // game.dat builds actually look like. The first version of the walk read names, found none and silently did
     // nothing; this is the test that would have caught it.
