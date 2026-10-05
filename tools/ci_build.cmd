@@ -28,6 +28,8 @@ cl /nologo /O2 /MT /W3 /EHa /Fe:audiolimit_test.exe audiolimit_test.cpp /link ke
 if errorlevel 1 exit /b 1
 cl /nologo /O2 /MT /W3 /EHa /Fe:logicslicer_test.exe logicslicer_test.cpp /link kernel32.lib
 if errorlevel 1 exit /b 1
+cl /nologo /O2 /MT /W3 /EHsc /Fe:bfme2_audio_guard_test.exe bfme2_audio_guard_test.cpp
+if errorlevel 1 exit /b 1
 cl /nologo /O2 /MT /W3 /Fe:crt_test2.exe crt_test2.cpp /link kernel32.lib
 if errorlevel 1 exit /b 1
 cl /nologo /O2 /MT /W3 /EHsc /Fe:rlsort_test.exe rlsort_test.cpp /link kernel32.lib /BASE:0x70000000 /FIXED /DYNAMICBASE:NO

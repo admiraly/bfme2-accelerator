@@ -24,11 +24,13 @@
 // difference switches the index off for good (the plain walk's answer is the one used). Kill switch: AOTR_AUDIOLIMIT=0.
 
 #ifndef AL_PRIM_PUSHBACK                                   // the list primitives (the offline test substitutes its own)
-#define AL_PRIM_PUSHBACK  0x0060011F
-#define AL_PRIM_PUSHFRONT 0x0086DC96
-#define AL_PRIM_ERASE     0x00702055
-#define AL_PRIM_POPBACK   0x0094EB6C
-#define AL_PRIM_CLEAR     0x005FFE47
+static DWORD g_alPushBackAddr = 0x0060011F, g_alPushFrontAddr = 0x0086DC96;
+static DWORD g_alEraseAddr = 0x00702055, g_alPopBackAddr = 0x0094EB6C, g_alClearAddr = 0x005FFE47;
+#define AL_PRIM_PUSHBACK  g_alPushBackAddr
+#define AL_PRIM_PUSHFRONT g_alPushFrontAddr
+#define AL_PRIM_ERASE     g_alEraseAddr
+#define AL_PRIM_POPBACK   g_alPopBackAddr
+#define AL_PRIM_CLEAR     g_alClearAddr
 #endif
 typedef void  (__fastcall* tAlPass)(void*, void*);
 typedef void  (__fastcall* tAlPush)(void*, void*, void*);

@@ -34,6 +34,10 @@ jobs:
           python tools/accelerator_audit.py --image baseline-reference/baselines/bfme2/workshop-vanilla-1.06/files/game.dat > baseline-audit.json
           python -c "import json; r=json.load(open('baseline-audit.json')); assert r['repository_baseline_matches']; assert r['recognized_build']=='BFME2'; assert not r['engine_hooks_enabled_by_build_table']; assert r['audio_loop_exact_hits']==['0x004576CB']"
           cat baseline-audit.json
+      - name: Test BFME II runtime byte guards
+        run: |
+          g++ -std=c++11 -O2 -Wall -Wextra -o /tmp/bfme2-audio-guard-test src/bfme2_audio_guard_test.cpp
+          python tools/check_audio_profile.py baseline-reference/baselines/bfme2/workshop-vanilla-1.06/files/game.dat /tmp/bfme2-audio-guard-test
       - uses: actions/upload-artifact@v4
         with:
           name: bfme2-baseline-audit
@@ -45,9 +49,22 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      - name: Checkout pinned BFME II reference binary
+        uses: actions/checkout@v4
+        with:
+          repository: Open-BFME/Open-BFME-2
+          ref: bdc65d655b4f326e7a66939af2975b757a3098a1
+          path: baseline-reference
+          persist-credentials: false
+          sparse-checkout: baselines/bfme2/workshop-vanilla-1.06
       - name: Build debug and production DLLs, launcher and offline tests
         shell: cmd
         run: tools\ci_build.cmd
+      - name: Test BFME II runtime byte guards
+        shell: pwsh
+        run: |
+          python tools/check_audio_profile.py baseline-reference/baselines/bfme2/workshop-vanilla-1.06/files/game.dat src/bfme2_audio_guard_test.exe
+          if ($LASTEXITCODE -ne 0) { throw "BFME II audio guards failed" }
       - name: Check audio indexing and logic operation order
         shell: pwsh
         working-directory: src

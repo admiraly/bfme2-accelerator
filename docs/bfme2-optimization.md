@@ -31,7 +31,7 @@ Accelerator donor: `76ccf2dc1fac0baf644987efea6ad460f8cb01d2`.
 | Accelerator recognizes this build | `.text` hash `0x32667B9B` | Existing BFME2 build-table entry applies |
 | Engine hooks disabled | BFME2 entry has `engineHooks = false` | Portable features only; runtime prerequisites still apply |
 | Required family imports present | `msvcr71.dll`, `mss32.dll`; image base `0x00400000` | Static family prerequisites, not proof of loaded DLLs |
-| Audio limit loop has one exact hit | 54 bytes at VA `0x004576CB`; donor VA `0x00456E88` | A promising relocation lead, not a verified audio port |
+| Audio limit loop has one exact hit | 54 bytes at VA `0x004576CB`; donor VA `0x00456E88` | Guarded opt-in audio binding; runtime validation pending |
 
 Open-BFME-2's matched ledger also supplies source leads for:
 
@@ -44,12 +44,43 @@ Open-BFME-2's matched ledger also supplies source leads for:
 These are matched-ledger identities, not accelerator replacements. RVAs are
 relative to the image base; the audio-loop address above is a VA.
 
+## Experimental BFME II audio index
+
+The 1.06 profile now binds the existing audio index independently of the global
+engine-hook flag. Its processing pass is VA `0x0046258D`; shared push-back,
+push-front, erase, pop-back and clear methods are guarded and detoured at entry.
+The mutation callbacks track the audio manager's list at offset `0x98`. The
+original list methods remain callable through instruction-aligned trampolines.
+The count loop preserves both stock counters and the original continuation.
+
+Enable it for a controlled vanilla 1.06 test from a Command Prompt:
+
+```bat
+set BFME2_AUDIOINDEX=1
+bfme2_accel_loader.exe
+```
+
+It is off by default and applies only to the recognized BFME II 1.06 text hash.
+All eight byte guards must match; all seven patch sites must be writable before
+any code changes. Guards are checked again with other threads suspended. A
+changed guard or preflight failure leaves the feature off. `AOTR_AUDIOLIMIT=0`
+also disables it. Look for `bfme2-audio` in the accelerator log.
+
+The existing index checks its first 20,000 indexed answers against the stock
+walk, then checks one in 64. A difference uses the stock answer and disables
+indexing. Small lists, rebuild limits and out-of-pass calls use the stock walk.
+These comparisons do not prove that unobserved mutations are impossible.
+Shared-list detours can add overhead outside the audio manager; a battle
+benchmark must measure both their cost and the saved traversal work.
+
+This is an experimental binding, not a measured speedup. Validate battle audio,
+long sessions, loading/saving, replays and multiplayer before changing defaults.
+
 ## Next implementation steps
 
-1. Audio indexing: identify the enclosing limit function and processing pass;
-   prove the list and event layouts; locate every list mutation and verify
-   call destinations. Port the guards before the replacement. Keep shadow
-   comparisons and automatic disable on differences.
+1. Validate the opt-in audio binding in a running game. Profile indexed and
+   stock runs of the same replay, review mismatch and mutation counters, and
+   audit additional mutations and audio manager lifetime paths.
 2. Profile a reproducible BFME II battle with portable features enabled and
    disabled. Choose the next feature from the measured remaining costs.
 3. Port sorting, equivalence caching and locks independently where evidence
@@ -70,13 +101,16 @@ injector and offline harnesses on Windows. Audio indexing and logic sequence
 checks run with several seeds. A Linux job audits the pinned reference binary.
 Development artifacts expire after 14 days and are not releases.
 
-The first CI execution exposed a missing `aotrPath` helper in the standalone
-logic harness; the harness now supplies it. The expanded test also reports
-failures in its experimental abandoned-step mode (`logicslicer_test SEED 2`).
-That mode mixes interrupted steps, catch-up work and changing list sizes; its
-model and the driver both need investigation before attributing a game bug.
-The robustness check remains a failing CI gate, after artifact upload, rather
-than being suppressed or treated as multiplayer validation.
+The interrupted-step regression isolates stock and sliced model state, compares
+complete operation sequences including destruction payloads, and exercises all
+four interruption points across 400 randomized cases per seed. All 4,800 cases
+pass across three seeds. The former failures were caused by mixing previous-step
+catch-up work into the new step's duplicate count and sharing reference state.
+No scheduler implementation change was needed; multiplayer remains untested.
+
+The BFME II audio guard test runs the runtime guard routine against the pinned
+mapped image, then changes every guarded byte individually and requires rejection.
+Neither test executes the game binary.
 
 The CRT test is compiled but needs the original `msvcr71.dll` to run. The sort
 test is compiled but currently expects the donor RotWK addresses. Render

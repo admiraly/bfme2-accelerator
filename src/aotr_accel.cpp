@@ -30,6 +30,7 @@ extern "C" {
 static char g_dir[MAX_PATH] = "";
 static char kLogPath[MAX_PATH] = "";
 static volatile LONG g_engineHooks = 0;   // may this build's absolute addresses be patched?
+static bool g_bfme2AudioCandidate = false;
 static void aotrSetDir(HMODULE self) {
     char p[MAX_PATH];
     DWORD n = GetModuleFileNameA(self, p, MAX_PATH);
@@ -2370,6 +2371,7 @@ static void rotateLog() {
 #include "aotr_logicspread.inc"
 #include "aotr_mutexcs.inc"
 #include "aotr_audiolimit.inc"
+#include "bfme2_audioindex.inc"
 #include "aotr_drawgen.inc"
 #include "aotr_rlsort.inc"
 #include "aotr_rt.inc"
@@ -2667,6 +2669,7 @@ static DWORD WINAPI initThread(LPVOID) {
         bool family = ((DWORD)(ULONG_PTR)base == 0x00400000) && textLen &&
                       GetModuleHandleA("msvcr71.dll") && GetModuleHandleA("mss32.dll");
         if (hit) {
+            g_bfme2AudioCandidate = hit->hash == 0x32667B9B;
             g_engineHooks = hit->engineHooks ? 1 : 0;
             logf("init: %s (.text %08X). %s", hit->name, textHash,
                  g_engineHooks ? "Everything is installed." :
@@ -2775,6 +2778,7 @@ static DWORD WINAPI initThread(LPVOID) {
         installAudioLimit();                         // sound request limit check: indexed count instead of a list walk per request (self-proving)
         installDeviceLock();                         // engine device mutex -> user-mode recursive lock
         }
+        if (g_bfme2AudioCandidate) installBfme2AudioIndex(base);
 #ifndef AOTR_PROD
         CreateThread(NULL, 0, rtReport, NULL, 0, NULL);
 #endif
