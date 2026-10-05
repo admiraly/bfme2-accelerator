@@ -34,16 +34,15 @@ static void __fastcall bfme2PacketDecode(void* p, int n) { bfme2PacketChecked<tr
 // Send block inputs: ESI = packet slot, EDI = payload length, EBX = CRC.
 // Continuation returns AL=1 and restores EBX/EDI/ESI from its own stack.
 static __declspec(naked) void hkBfme2PacketSend() {
-    __asm { mov [esi], ebx }
     __asm { cmp g_bfme2PacketOff, 0 }
     __asm { jne sendChecked }
-    __asm { cmp edi, 12 }
+    __asm { cmp edi, 32 }
     __asm { jae sendChecked }
-    // One to three words: avoid a C call and vector-key setup entirely.
+    // Up to eight words: no C call, vector setup or partial CRC-store/SIMD-load.
     __asm { mov eax, ebx }
     __asm { xor eax, 0x38D9B7D4 }
     __asm { bswap eax }
-    __asm { mov [esi], eax }
+    __asm { mov [esi+0], eax }
     __asm { cmp edi, 4 }
     __asm { jb sendDone }
     __asm { mov eax, [esi+4] }
@@ -56,8 +55,39 @@ static __declspec(naked) void hkBfme2PacketSend() {
     __asm { xor eax, 0x3A662DB8 }
     __asm { bswap eax }
     __asm { mov [esi+8], eax }
+    __asm { cmp edi, 12 }
+    __asm { jb sendDone }
+    __asm { mov eax, [esi+12] }
+    __asm { xor eax, 0xBB2C68AA }
+    __asm { bswap eax }
+    __asm { mov [esi+12], eax }
+    __asm { cmp edi, 16 }
+    __asm { jb sendDone }
+    __asm { mov eax, [esi+16] }
+    __asm { xor eax, 0x3BF2A39C }
+    __asm { bswap eax }
+    __asm { mov [esi+16], eax }
+    __asm { cmp edi, 20 }
+    __asm { jb sendDone }
+    __asm { mov eax, [esi+20] }
+    __asm { xor eax, 0xBCB8DE8E }
+    __asm { bswap eax }
+    __asm { mov [esi+20], eax }
+    __asm { cmp edi, 24 }
+    __asm { jb sendDone }
+    __asm { mov eax, [esi+24] }
+    __asm { xor eax, 0x3D7F1980 }
+    __asm { bswap eax }
+    __asm { mov [esi+24], eax }
+    __asm { cmp edi, 28 }
+    __asm { jb sendDone }
+    __asm { mov eax, [esi+28] }
+    __asm { xor eax, 0xBE455472 }
+    __asm { bswap eax }
+    __asm { mov [esi+28], eax }
     __asm { jmp sendDone }
-    __asm { sendChecked: lea edx, [edi+4] }
+    __asm { sendChecked: mov [esi], ebx }
+    __asm { lea edx, [edi+4] }
     __asm { mov ecx, esi }
     __asm { call bfme2PacketEncode }
     __asm { sendDone: mov eax, 0x008D4F75 }

@@ -381,7 +381,8 @@ has no live loop scratch slots or flags; ESI, EDI and EBP remain intact. Enclosi
 function guards also cover those continuations. Each site is independent: a
 refused write can leave that direction stock without requiring rollback.
 
-Packets shorter than 16 bytes use fully unrolled scalar XOR/BSWAP instructions
+Send packets shorter than 36 bytes and receive packets shorter than 16 bytes
+use fully unrolled scalar XOR/BSWAP instructions
 in the detour itself, avoiding C calls and SIMD setup. These short paths are
 covered by native inline-block tests at every length and alignment. They check
 the global disable flag but do not perform runtime shadow comparisons.
@@ -419,7 +420,8 @@ that either direction can remain stock while the other installs.
 The complete inline benchmark exposed an initial 16-byte send regression
 (10.66 ns native versus 12.87 ns through the cdecl bridge), despite larger-packet
 speedups. The hook now passes buffer and length in ECX/EDX using a fastcall
-wrapper, removing argument pushes and caller stack cleanup. Sub-16-byte packets use an
-unrolled scalar path within the hook to avoid that overhead completely. Native private-ABI
+wrapper, removing argument pushes and caller stack cleanup. Small packets use an unrolled scalar path within the hook to avoid that overhead
+completely. On sends it also avoids writing only the four-byte CRC immediately
+before loading a 16-byte vector from the same address. Native private-ABI
 oracle calls retain their original ECX/EAX convention. Recheck the inline timing
 rows when evaluating this build; helper-only timings do not prove a faster hook.

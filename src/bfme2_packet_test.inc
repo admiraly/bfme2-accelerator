@@ -57,15 +57,15 @@ static int packetTests() {
         ++mutations;
     }
     BYTE original[1184], actual[1184], expected[1184];
-    double inlineStock[8][2] = {};
-    const unsigned inlineLengths[] = {4, 8, 12, 16, 32, 64, 128, 480};
+    double inlineStock[11][2] = {};
+    const unsigned inlineLengths[] = {4, 8, 12, 16, 20, 24, 28, 32, 64, 128, 480};
     LARGE_INTEGER frequency; QueryPerformanceFrequency(&frequency);
     unsigned cases = 0;
     // Every alignment and size through the native receive bound, plus signed
     // no-work inputs and larger standalone helper sizes.
     for (unsigned round = 0; round < 8; ++round) {
         for (unsigned i = 0; i < sizeof(original); ++i) original[i] = (BYTE)random32();
-        for (int length = -7; length <= 1100; ++length) for (unsigned align = 0; align < 16; ++align) {
+        for (int length = -7; length <= 1100; ++length) for (unsigned align = 0; align < 36; ++align) {
             for (unsigned decode = 0; decode < 2; ++decode) {
                 memcpy(actual, original, sizeof(actual)); memcpy(expected, original, sizeof(expected));
                 bfme2PacketStock(expected + align + 16, length, g_bfme2PacketStock[decode]);
@@ -138,7 +138,7 @@ static int packetTests() {
         bfme2PacketStock(expected, n, g_bfme2PacketStock[1]); packetReceiveBlock(actual, n);
         if (memcmp(expected, actual, 1038)) return 1;
     }
-    for (unsigned size = 0; size < 8; ++size) for (unsigned decode = 0; decode < 2; ++decode) {
+    for (unsigned size = 0; size < 11; ++size) for (unsigned decode = 0; decode < 2; ++decode) {
         LARGE_INTEGER begin, end; QueryPerformanceCounter(&begin);
         for (unsigned i = 0; i < 500000; ++i) {
             if (decode) packetReceiveBlock(actual, inlineLengths[size]);
@@ -167,7 +167,7 @@ static int packetTests() {
         if (memcmp(expected, actual, align + 1038)) return 1;
         cases += 2;
     }
-    for (unsigned align = 0; align < 16; ++align) for (unsigned n = 0; n < 16; ++n) {
+    for (unsigned align = 0; align < 36; ++align) for (unsigned n = 0; n < 36; ++n) {
         memcpy(actual, original, sizeof(actual)); memcpy(expected, original, sizeof(expected));
         bfme2PacketStock(expected + align, n, g_bfme2PacketStock[1]); packetReceiveBlock(actual + align, n);
         if (memcmp(expected, actual, align + 1038)) return 1;
@@ -196,7 +196,7 @@ static int packetTests() {
     for (unsigned i = 0; i < 20000; ++i) {
         packetSendBlock(actual, 12, 0x98765432); packetReceiveBlock(actual, 16);
     }
-    for (unsigned size = 0; size < 8; ++size) for (unsigned decode = 0; decode < 2; ++decode) {
+    for (unsigned size = 0; size < 11; ++size) for (unsigned decode = 0; decode < 2; ++decode) {
         LARGE_INTEGER begin, end; QueryPerformanceCounter(&begin);
         for (unsigned i = 0; i < 500000; ++i) {
             if (decode) packetReceiveBlock(actual, inlineLengths[size]);
