@@ -401,3 +401,12 @@ Frame waits depend on command availability and the existing native pacing.
 Reducing packet CPU work cannot remove the wait for another player's commands.
 Changing delay, retry, buffering or frame-rate rules requires a separate
 compatibility investigation and two-client measurements.
+
+The first Windows run passed 344,687 native packet comparisons and all 726
+individual guard-byte mutations. Its checked-transform microbenchmark measured
+about 1.9–8.3x versus the original helper at 16–1024 bytes (roughly 4–51 ns
+versus 9–421 ns on that shared runner). Those figures exclude the active inline
+bridge; a separate before/after inline-block benchmark reports the complete
+detour cost. These are small absolute savings and do not establish a measurable
+multiplayer or frame-rate improvement. Independent write-refusal checks verify
+that either direction can remain stock while the other installs.

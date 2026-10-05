@@ -57,6 +57,9 @@ static int packetTests() {
         ++mutations;
     }
     BYTE original[1184], actual[1184], expected[1184];
+    double inlineStock[4][2] = {};
+    const unsigned inlineLengths[] = {16, 64, 128, 480};
+    LARGE_INTEGER frequency; QueryPerformanceFrequency(&frequency);
     unsigned cases = 0;
     // Every alignment and size through the native receive bound, plus signed
     // no-work inputs and larger standalone helper sizes.
@@ -84,7 +87,11 @@ static int packetTests() {
     for (int length = 0; length <= 1038; ++length) {
         BYTE* p = pages + 4096 - length;
         for (int i = 0; i < length; ++i) p[i] = original[i];
-        bfme2PacketTransform<false>(p, length); bfme2PacketTransform<true>(p, length);
+        memcpy(expected, original, length);
+        bfme2PacketStock(expected, length, g_bfme2PacketStock[0]);
+        bfme2PacketTransform<false>(p, length);
+        if (length && memcmp(p, expected, length)) return 1;
+        bfme2PacketStock(p, length, g_bfme2PacketStock[1]);
         if (length && memcmp(p, original, length)) return 1;
         ++cases;
     }
@@ -100,6 +107,22 @@ static int packetTests() {
     if (!bfme2PacketProfileMatches(image)) return 1;
     failPatch = true; installBfme2PacketFast(image); failPatch = false;
     if (!bfme2PacketProfileMatches(image)) return 1;
+    for (unsigned direction = 0; direction < 2; ++direction) {
+        DWORD sites[] = {0x8D4F47, 0x8D4D87};
+        failPatchTarget = sites[direction]; installBfme2PacketFast(image); failPatchTarget = 0;
+        if (*(BYTE*)(ULONG_PTR)sites[1-direction] != 0xE9 ||
+            *(BYTE*)(ULONG_PTR)sites[direction] != (direction ? 0x8B : 0x8D)) return 1;
+        memcpy((void*)0x8D4F47, kBfme2PacketSend + 0x8D4F47 - 0x8D4EC6, 6);
+        memcpy((void*)0x8D4D87, kBfme2PacketReceive + 0x8D4D87 - 0x8D4D08, 6);
+        FlushInstructionCache(GetCurrentProcess(), (void*)0x8D4D08, 0x272);
+        if (!bfme2PacketProfileMatches(image)) return 1;
+    }
+    bfme2PacketStock(NULL, -2147483647 - 1, g_bfme2PacketStock[0]);
+    bfme2PacketStock(NULL, 0, g_bfme2PacketStock[1]);
+    unsigned proof = g_bfme2PacketCalls[0];
+    memcpy(actual, original, sizeof(actual)); memcpy(expected, original, sizeof(expected));
+    bfme2PacketStock(expected, 1100, g_bfme2PacketStock[0]); bfme2PacketEncode(actual, 1100);
+    if (memcmp(expected, actual, sizeof(actual)) || g_bfme2PacketCalls[0] != proof) return 1;
     // Native block equivalence before detouring; receive stack scratch slots
     // lie after the 1038-byte packet and are deliberately excluded here.
     *(BYTE*)0x8D4F75 = 0xC3; *(BYTE*)0x8D4DBF = 0xC3;
@@ -114,6 +137,16 @@ static int packetTests() {
         memcpy(actual, original, sizeof(actual)); memcpy(expected, original, sizeof(expected));
         bfme2PacketStock(expected, n, g_bfme2PacketStock[1]); packetReceiveBlock(actual, n);
         if (memcmp(expected, actual, 1038)) return 1;
+    }
+    for (unsigned size = 0; size < 4; ++size) for (unsigned decode = 0; decode < 2; ++decode) {
+        LARGE_INTEGER begin, end; QueryPerformanceCounter(&begin);
+        for (unsigned i = 0; i < 500000; ++i) {
+            if (decode) packetReceiveBlock(actual, inlineLengths[size]);
+            else packetSendBlock(actual, inlineLengths[size] - 4, 0x98765432);
+            sink ^= actual[0];
+        }
+        QueryPerformanceCounter(&end);
+        inlineStock[size][decode] = (double)(end.QuadPart - begin.QuadPart) * 1e9 / frequency.QuadPart / 500000;
     }
     *(BYTE*)0x8D4F75 = kBfme2PacketSend[0x8D4F75 - 0x8D4EC6];
     *(BYTE*)0x8D4DBF = kBfme2PacketReceive[0x8D4DBF - 0x8D4D08];
@@ -148,7 +181,21 @@ static int packetTests() {
     if (memcmp(expected, actual, 1038)) return 1;
     g_bfme2PacketOff = 0;
     printf("BFME II packet transforms: %u exact native cases, %u mutated guard bytes, protected pages, signed no-work inputs, real inline detours and mismatch restoration passed\n", cases, mutations);
-    LARGE_INTEGER frequency; QueryPerformanceFrequency(&frequency);
+    // Steady-state timings include the real detour bridge and one-in-64 proof.
+    for (unsigned i = 0; i < 20000; ++i) {
+        packetSendBlock(actual, 12, 0x98765432); packetReceiveBlock(actual, 16);
+    }
+    for (unsigned size = 0; size < 4; ++size) for (unsigned decode = 0; decode < 2; ++decode) {
+        LARGE_INTEGER begin, end; QueryPerformanceCounter(&begin);
+        for (unsigned i = 0; i < 500000; ++i) {
+            if (decode) packetReceiveBlock(actual, inlineLengths[size]);
+            else packetSendBlock(actual, inlineLengths[size] - 4, 0x98765432);
+            sink ^= actual[0];
+        }
+        QueryPerformanceCounter(&end);
+        double ns = (double)(end.QuadPart - begin.QuadPart) * 1e9 / frequency.QuadPart / 500000;
+        printf("packet-inline-%s len=%u: native=%.2f ns detoured-SIMD=%.2f ns ratio=%.2fx (steady-state synthetic CPU timing)\n", decode ? "decode" : "encode", inlineLengths[size], inlineStock[size][decode], ns, inlineStock[size][decode] / ns);
+    }
     for (unsigned length : {16u, 64u, 128u, 480u, 1024u}) for (unsigned decode = 0; decode < 2; ++decode) {
         double ns[2] = {};
         for (unsigned mode = 0; mode < 2; ++mode) {

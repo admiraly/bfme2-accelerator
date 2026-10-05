@@ -7,6 +7,7 @@
 typedef BYTE (__fastcall* tIsEquiv)(void*, void*, void*);
 static void logf(const char*, ...) {}
 static bool failAllocation = false, failPatch = false;
+static DWORD failPatchTarget = 0;
 static BYTE* makeTrampoline(BYTE* target, int stolen) {
     if (failAllocation) return NULL;
     BYTE* t = (BYTE*)VirtualAlloc(NULL, 64, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
@@ -16,7 +17,7 @@ static BYTE* makeTrampoline(BYTE* target, int stolen) {
     FlushInstructionCache(GetCurrentProcess(), t, stolen + 5); return t;
 }
 static BOOL patchJmp(BYTE* target, void* destination, int stolen) {
-    if (failPatch) return FALSE;
+    if (failPatch || (DWORD)(ULONG_PTR)target == failPatchTarget) return FALSE;
     DWORD protection;
     if (!VirtualProtect(target, stolen, PAGE_EXECUTE_READWRITE, &protection)) return FALSE;
     target[0] = 0xE9; *(DWORD*)(target + 1) = (DWORD)(ULONG_PTR)destination - (DWORD)(ULONG_PTR)(target + 5);
