@@ -35,20 +35,65 @@ static void __fastcall bfme2PacketDecode(void* p, int n) { bfme2PacketChecked<tr
 // Continuation returns AL=1 and restores EBX/EDI/ESI from its own stack.
 static __declspec(naked) void hkBfme2PacketSend() {
     __asm { mov [esi], ebx }
-    __asm { lea edx, [edi+4] }
+    __asm { cmp g_bfme2PacketOff, 0 }
+    __asm { jne sendChecked }
+    __asm { cmp edi, 12 }
+    __asm { jae sendChecked }
+    // One to three words: avoid a C call and vector-key setup entirely.
+    __asm { mov eax, ebx }
+    __asm { xor eax, 0x38D9B7D4 }
+    __asm { bswap eax }
+    __asm { mov [esi], eax }
+    __asm { cmp edi, 4 }
+    __asm { jb sendDone }
+    __asm { mov eax, [esi+4] }
+    __asm { xor eax, 0xB99FF2C6 }
+    __asm { bswap eax }
+    __asm { mov [esi+4], eax }
+    __asm { cmp edi, 8 }
+    __asm { jb sendDone }
+    __asm { mov eax, [esi+8] }
+    __asm { xor eax, 0x3A662DB8 }
+    __asm { bswap eax }
+    __asm { mov [esi+8], eax }
+    __asm { jmp sendDone }
+    __asm { sendChecked: lea edx, [edi+4] }
     __asm { mov ecx, esi }
     __asm { call bfme2PacketEncode }
-    __asm { mov eax, 0x008D4F75 }
+    __asm { sendDone: mov eax, 0x008D4F75 }
     __asm { jmp eax }
 }
 // Receive block inputs: EDI = datagram length, buffer = EBP-0x438.
 // ESI/EDI/EBP remain live; EBX, flags, EAX/ECX/EDX and the two loop-local
 // scratch slots are dead at the continuation (verified through the epilogue).
 static __declspec(naked) void hkBfme2PacketReceive() {
-    __asm { mov edx, edi }
+    __asm { cmp g_bfme2PacketOff, 0 }
+    __asm { jne receiveChecked }
+    __asm { cmp edi, 16 }
+    __asm { jae receiveChecked }
+    __asm { cmp edi, 4 }
+    __asm { jb receiveDone }
+    __asm { mov eax, [ebp-0x438] }
+    __asm { bswap eax }
+    __asm { xor eax, 0x38D9B7D4 }
+    __asm { mov [ebp-0x438], eax }
+    __asm { cmp edi, 8 }
+    __asm { jb receiveDone }
+    __asm { mov eax, [ebp-0x434] }
+    __asm { bswap eax }
+    __asm { xor eax, 0xB99FF2C6 }
+    __asm { mov [ebp-0x434], eax }
+    __asm { cmp edi, 12 }
+    __asm { jb receiveDone }
+    __asm { mov eax, [ebp-0x430] }
+    __asm { bswap eax }
+    __asm { xor eax, 0x3A662DB8 }
+    __asm { mov [ebp-0x430], eax }
+    __asm { jmp receiveDone }
+    __asm { receiveChecked: mov edx, edi }
     __asm { lea ecx, [ebp-0x438] }
     __asm { call bfme2PacketDecode }
-    __asm { mov eax, 0x008D4DBF }
+    __asm { receiveDone: mov eax, 0x008D4DBF }
     __asm { jmp eax }
 }
 static void installBfme2PacketFast(BYTE* base) {

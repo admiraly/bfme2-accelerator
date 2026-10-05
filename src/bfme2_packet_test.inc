@@ -57,8 +57,8 @@ static int packetTests() {
         ++mutations;
     }
     BYTE original[1184], actual[1184], expected[1184];
-    double inlineStock[4][2] = {};
-    const unsigned inlineLengths[] = {16, 64, 128, 480};
+    double inlineStock[8][2] = {};
+    const unsigned inlineLengths[] = {4, 8, 12, 16, 32, 64, 128, 480};
     LARGE_INTEGER frequency; QueryPerformanceFrequency(&frequency);
     unsigned cases = 0;
     // Every alignment and size through the native receive bound, plus signed
@@ -138,7 +138,7 @@ static int packetTests() {
         bfme2PacketStock(expected, n, g_bfme2PacketStock[1]); packetReceiveBlock(actual, n);
         if (memcmp(expected, actual, 1038)) return 1;
     }
-    for (unsigned size = 0; size < 4; ++size) for (unsigned decode = 0; decode < 2; ++decode) {
+    for (unsigned size = 0; size < 8; ++size) for (unsigned decode = 0; decode < 2; ++decode) {
         LARGE_INTEGER begin, end; QueryPerformanceCounter(&begin);
         for (unsigned i = 0; i < 500000; ++i) {
             if (decode) packetReceiveBlock(actual, inlineLengths[size]);
@@ -167,6 +167,17 @@ static int packetTests() {
         if (memcmp(expected, actual, align + 1038)) return 1;
         cases += 2;
     }
+    for (unsigned align = 0; align < 16; ++align) for (unsigned n = 0; n < 16; ++n) {
+        memcpy(actual, original, sizeof(actual)); memcpy(expected, original, sizeof(expected));
+        bfme2PacketStock(expected + align, n, g_bfme2PacketStock[1]); packetReceiveBlock(actual + align, n);
+        if (memcmp(expected, actual, align + 1038)) return 1;
+        if (n >= 4) {
+            memcpy(actual, original, sizeof(actual)); memcpy(expected, original, sizeof(expected));
+            DWORD crc = random32(); memcpy(expected + align, &crc, 4);
+            bfme2PacketStock(expected + align, n, g_bfme2PacketStock[0]); packetSendBlock(actual + align, n - 4, crc);
+            if (memcmp(expected, actual, sizeof(actual))) return 1;
+        }
+    }
     if (g_bfme2PacketOff) return 1;
     // Check wrong oracle restores stock bytes and disables both directions.
     void* stock = g_bfme2PacketStock[0]; g_bfme2PacketStock[0] = (void*)&packetWrongOracle;
@@ -185,7 +196,7 @@ static int packetTests() {
     for (unsigned i = 0; i < 20000; ++i) {
         packetSendBlock(actual, 12, 0x98765432); packetReceiveBlock(actual, 16);
     }
-    for (unsigned size = 0; size < 4; ++size) for (unsigned decode = 0; decode < 2; ++decode) {
+    for (unsigned size = 0; size < 8; ++size) for (unsigned decode = 0; decode < 2; ++decode) {
         LARGE_INTEGER begin, end; QueryPerformanceCounter(&begin);
         for (unsigned i = 0; i < 500000; ++i) {
             if (decode) packetReceiveBlock(actual, inlineLengths[size]);
