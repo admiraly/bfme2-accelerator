@@ -129,6 +129,7 @@ static BYTE* makeTrampoline(BYTE* target, int stolen) {
     memcpy(t, target, stolen);
     t[stolen] = 0xE9;
     *(DWORD*)(t + stolen + 1) = (DWORD)(ULONG_PTR)(target + stolen) - (DWORD)(ULONG_PTR)(t + stolen + 5);
+    FlushInstructionCache(GetCurrentProcess(), t, stolen + 5);
     return t;
 }
 
@@ -2671,7 +2672,7 @@ static DWORD WINAPI initThread(LPVOID) {
         bool family = ((DWORD)(ULONG_PTR)base == 0x00400000) && textLen &&
                       GetModuleHandleA("msvcr71.dll") && GetModuleHandleA("mss32.dll");
         if (hit) {
-            g_bfme2Candidate = hit->hash == 0x32667B9B;
+            g_bfme2Candidate = hit->hash == 0x32667B9B && (DWORD)(ULONG_PTR)base == 0x00400000;
             g_engineHooks = hit->engineHooks ? 1 : 0;
             logf("init: %s (.text %08X). %s", hit->name, textHash,
                  g_engineHooks ? "Everything is installed." :

@@ -291,6 +291,22 @@ static int installationTests() {
     o_bfme2RlSort(stock.data(), stock.data() + 32, pred);
     ((tBfme2RlSort)0x574870)(data.data(), data.data() + 32, pred);
     if (memcmp(stock.data(), data.data(), 32 * sizeof(RlEl))) return 1;
+    for (unsigned n : {8192u, 8193u}) {
+        std::vector<RlEl> large(n);
+        for (unsigned i = 0; i < n; ++i) { large[i].w[0] = (DWORD)(ULONG_PTR)&meshes[random32() % 32]; large[i].w[1] = i; }
+        auto expected = large;
+        o_bfme2RlSort(expected.data(), expected.data() + n, pred);
+        ((tBfme2RlSort)0x574870)(large.data(), large.data() + n, pred);
+        if (memcmp(expected.data(), large.data(), n * sizeof(RlEl))) return 1;
+    }
+    // Unknown comparator goes stock exactly once, without shadow duplication.
+    auto unknown = data;
+    sequence.clear(); o_bfme2RlSort(data.data(), data.data() + 32, recordedLess);
+    auto expectedSequence = sequence; sequence.clear();
+    g_bfme2RlProof = 1;
+    ((tBfme2RlSort)0x574870)(unknown.data(), unknown.data() + 32, recordedLess);
+    if (sequence != expectedSequence || g_bfme2RlProof != 1 || memcmp(data.data(), unknown.data(), 32 * sizeof(RlEl))) return 1;
+    for (const auto& mesh : meshes) if (mesh.refs != 1000000) return 1;
     // Deliberately wrong stock oracles exercise disable and answer restoration.
     tIsEquiv originalEq = o_bfme2Equiv;
     o_bfme2Equiv = wrongEquivalence; g_bfme2EquivCalls = 0;
@@ -302,7 +318,7 @@ static int installationTests() {
     ((tBfme2RlSort)0x574870)(&element, &element + 1, pred);
     if (element.w[1] != 0x55 || !g_bfme2RlOff) return 1;
     o_bfme2RlSort = originalSort; g_bfme2RlOff = 0;
-    puts("BFME II native detours: opt-out, guard/allocation/write failures, trampoline calls and mismatch fallback passed");
+    puts("BFME II native detours: opt-out, guard/allocation/write failures, trampoline calls, size/comparator limits and mismatch fallback passed");
     return 0;
 }
 int main(int argc, char** argv) {

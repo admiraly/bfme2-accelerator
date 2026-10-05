@@ -86,7 +86,8 @@ set BFME2_RLSORT=1
 bfme2_accel_loader.exe
 ```
 
-Both are off by default and restricted to the recognized vanilla 1.06 build.
+Both are off by default and restricted to the recognized vanilla 1.06 build
+loaded at `0x00400000`.
 The equivalence binding guards the complete 335-byte routine at VA `0x0073BB04`
 and its 14-byte final-override getter. It answers null, identity and empty-list
 cases directly; populated lists stay stock. It reads current original-template
@@ -112,7 +113,8 @@ Validation includes 2,112,500 equivalence cases with overrides, populated lists,
 nulls and storage reuse; 3,240 sorting cases comparing bytes, comparator sequences
 and final reference counts; forced heap fallback; and rejection of 349 equivalence
 and 5,634 sort guard mutations. Tests also exercise real entry detours and copied
-prologues, opt-out, guard/allocation/write failures and deliberate wrong-oracle
+prologues, the 8,192/8,193-record boundary, unknown-comparator stock delegation,
+opt-out, guard/allocation/write failures and deliberate wrong-oracle
 mismatch fallback. Thread suspension in this isolated child test is a no-op;
 in-game concurrent patch installation remains unvalidated.
 
