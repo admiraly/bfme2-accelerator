@@ -57,10 +57,8 @@ jobs:
               & .\audiolimit_test.exe 0 $skew $seed
               if ($LASTEXITCODE -ne 0) { throw "Audio equivalence failed: seed=$seed skew=$skew" }
             }
-            foreach ($pattern in @(0, 2)) {
-              & .\logicslicer_test.exe $seed $pattern
-              if ($LASTEXITCODE -ne 0) { throw "Logic order failed: seed=$seed pattern=$pattern" }
-            }
+            & .\logicslicer_test.exe $seed
+            if ($LASTEXITCODE -ne 0) { throw "Logic order failed: seed=$seed" }
           }
       - name: Package development build
         shell: pwsh
@@ -72,3 +70,13 @@ jobs:
           name: accelerator-windows-x86-development
           path: ci-dist/
           retention-days: 14
+      - name: Check experimental abandoned-step robustness
+        shell: pwsh
+        working-directory: src
+        run: |
+          $failed = @()
+          foreach ($seed in @(1, 777, 65535)) {
+            & .\logicslicer_test.exe $seed 2
+            if ($LASTEXITCODE -ne 0) { $failed += $seed }
+          }
+          if ($failed.Count -gt 0) { throw "Abandoned-step robustness failed for seeds: $($failed -join ', '). Build artifacts remain available; do not promote logic spreading based on normal-order checks." }

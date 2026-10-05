@@ -70,6 +70,14 @@ injector and offline harnesses on Windows. Audio indexing and logic sequence
 checks run with several seeds. A Linux job audits the pinned reference binary.
 Development artifacts expire after 14 days and are not releases.
 
+The first CI execution exposed a missing `aotrPath` helper in the standalone
+logic harness; the harness now supplies it. The expanded test also reports
+failures in its experimental abandoned-step mode (`logicslicer_test SEED 2`).
+That mode mixes interrupted steps, catch-up work and changing list sizes; its
+model and the driver both need investigation before attributing a game bug.
+The robustness check remains a failing CI gate, after artifact upload, rather
+than being suppressed or treated as multiplayer validation.
+
 The CRT test is compiled but needs the original `msvcr71.dll` to run. The sort
 test is compiled but currently expects the donor RotWK addresses. Render
 equivalence needs D3D9/D3DX and an appropriate graphics environment. No battle
