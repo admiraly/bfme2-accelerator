@@ -240,6 +240,7 @@ static int stringTests() {
         for (unsigned i = 0; i < lb; ++i) pb[8 + i] = trial % 4 == 0 ? 'a' : (BYTE)random32();
         DWORD ha = trial % 17 == 0 ? 0 : (DWORD)(ULONG_PTR)pa;
         DWORD hb = trial % 23 == 0 ? 0 : (DWORD)(ULONG_PTR)pb;
+        if (trial % 7 == 0) hb = ha; // Shared header, including non-ASCII data.
         int stock = o_bfme2StringNoCase(&ha, NULL, &hb);
         int fast = hkBfme2StringNoCase(&ha, NULL, &hb);
         if (stock != fast || g_bfme2StringOff) { printf("StringBase mismatch trial=%u\n", trial); return 1; }
@@ -255,11 +256,12 @@ static int stringTests() {
     }
     printf("BFME II StringBase: %lu native-header cases, null headers, full 16-bit lengths and protected-page bounds passed\n", memberCases);
     // Compare against our existing accelerated import path as well as stock.
-    for (unsigned length : {8u,16u,32u,64u,128u}) {
+    for (unsigned length : {8u,16u,32u,64u,128u}) for (unsigned mode : {0u,1u,2u}) {
         BYTE* pa = a + 4096; BYTE* pb = b + 4096;
         *(WORD*)(pa + 4) = *(WORD*)(pb + 4) = (WORD)length;
         memset(pa + 8, 'A', length); memset(pb + 8, 'a', length);
-        DWORD ha = (DWORD)(ULONG_PTR)pa, hb = (DWORD)(ULONG_PTR)pb;
+        DWORD ha = (DWORD)(ULONG_PTR)pa, hb = mode == 1 ? ha : (DWORD)(ULONG_PTR)pb;
+        if (mode == 2) pb[8] = 'b';
         double untouchedBest = 1e9, iatBest = 1e9, hookBest = 1e9;
         auto measure = [&](tBfme2StringNoCase fn) {
             LARGE_INTEGER f, begin, end; QueryPerformanceFrequency(&f);
@@ -280,7 +282,8 @@ static int stringTests() {
             if (oldTime < iatBest) iatBest = oldTime;
             if (hookTime < hookBest) hookBest = hookTime;
         }
-        printf("StringBase %3u bytes: untouched %.2f ns, current SIMD IAT %.2f ns, full hook %.2f ns, import/hook %.2fx\n",
+        printf("StringBase %s %3u bytes: untouched %.2f ns, current SIMD IAT %.2f ns, full hook %.2f ns, import/hook %.2fx\n",
+               mode == 1 ? "shared header" : mode == 2 ? "early mismatch" : "equal ASCII",
                length, untouchedBest, iatBest, hookBest, iatBest / hookBest);
     }
     *(DWORD*)0xBBA690 = (DWORD)(ULONG_PTR)o_crtStrnicmp;

@@ -194,47 +194,36 @@ static int __cdecl fastStricmp(const char* a, const char* b) {
 }
 static int __cdecl fastStrnicmp(const char* a, const char* b, size_t n) {
     size_t i = 0;
-    for (;;) {
-        // Keep the full-width hot loop separate from short/page-tail handling.
-        while (n - i >= 16 && CRT_PAGE_SAFE(a + i, b + i)) {
-            unsigned events = crtCaseEvents(_mm_loadu_si128((const __m128i*)(a + i)), _mm_loadu_si128((const __m128i*)(b + i)));
+    while (i < n) {
+        unsigned events;
+        if (n - i >= 16 && CRT_PAGE_SAFE(a + i, b + i)) {
+            events = crtCaseEvents(_mm_loadu_si128((const __m128i*)(a + i)), _mm_loadu_si128((const __m128i*)(b + i)));
             if (!events) { i += 16; continue; }
-            unsigned long k; _BitScanForward(&k, events);
-            BYTE ca = (BYTE)a[i + k], cb = (BYTE)b[i + k];
+        } else {
+            // Resolve short/page-tail first-byte events before narrow SIMD.
+            // Leave equal bytes in place so a load still covers the full span.
+            BYTE ca = (BYTE)a[i], cb = (BYTE)b[i];
             if ((ca | cb) & 0x80) return o_crtStrnicmp(a, b, n);
             int la = crtLowerAscii(ca), lb = crtLowerAscii(cb);
-            return la == lb ? 0 : (la < lb ? -1 : 1);
+            if (la != lb) return la < lb ? -1 : 1;
+            if (!ca) return 0;
+            // Every narrow load stays within both pages and the remaining count.
+            if (n - i >= 8 && (((((size_t)(a + i)) | ((size_t)(b + i))) & 4095) <= 4088)) {
+                events = crtCaseEvents(_mm_loadl_epi64((const __m128i*)(a + i)), _mm_loadl_epi64((const __m128i*)(b + i))) & 0xFF;
+                if (!events) { i += 8; continue; }
+            } else if (n - i >= 4 && (((((size_t)(a + i)) | ((size_t)(b + i))) & 4095) <= 4092)) {
+                events = crtCaseEvents(_mm_cvtsi32_si128(*(const int*)(a + i)), _mm_cvtsi32_si128(*(const int*)(b + i))) & 0xF;
+                if (!events) { i += 4; continue; }
+            } else { ++i; continue; }
         }
-        if (i == n) return 0;
-        // An early scalar event wins before narrow SIMD setup. Do not consume
-        // an equal byte: the following load can still cover the full short span.
-        BYTE ca = (BYTE)a[i], cb = (BYTE)b[i];
+        // One shared first-event resolver keeps the vector hot path compact.
+        unsigned long k; _BitScanForward(&k, events);
+        BYTE ca = (BYTE)a[i + k], cb = (BYTE)b[i + k];
         if ((ca | cb) & 0x80) return o_crtStrnicmp(a, b, n);
         int la = crtLowerAscii(ca), lb = crtLowerAscii(cb);
-        if (la != lb) return la < lb ? -1 : 1;
-        if (!ca) return 0;
-        // Bounded names shorter than 16 bytes still benefit from SIMD.
-        // Narrow loads stay within both pages and the remaining count.
-        if (n - i >= 8 && (((((size_t)(a + i)) | ((size_t)(b + i))) & 4095) <= 4088)) {
-            unsigned events = crtCaseEvents(_mm_loadl_epi64((const __m128i*)(a + i)), _mm_loadl_epi64((const __m128i*)(b + i))) & 0xFF;
-            if (!events) { i += 8; continue; }
-            unsigned long k; _BitScanForward(&k, events);
-            BYTE ca = (BYTE)a[i + k], cb = (BYTE)b[i + k];
-            if ((ca | cb) & 0x80) return o_crtStrnicmp(a, b, n);
-            int la = crtLowerAscii(ca), lb = crtLowerAscii(cb);
-            return la == lb ? 0 : (la < lb ? -1 : 1);
-        }
-        if (n - i >= 4 && (((((size_t)(a + i)) | ((size_t)(b + i))) & 4095) <= 4092)) {
-            unsigned events = crtCaseEvents(_mm_cvtsi32_si128(*(const int*)(a + i)), _mm_cvtsi32_si128(*(const int*)(b + i))) & 0xF;
-            if (!events) { i += 4; continue; }
-            unsigned long k; _BitScanForward(&k, events);
-            BYTE ca = (BYTE)a[i + k], cb = (BYTE)b[i + k];
-            if ((ca | cb) & 0x80) return o_crtStrnicmp(a, b, n);
-            int la = crtLowerAscii(ca), lb = crtLowerAscii(cb);
-            return la == lb ? 0 : (la < lb ? -1 : 1);
-        }
-        ++i;
+        return la == lb ? 0 : (la < lb ? -1 : 1);
     }
+    return 0;
 }
 
 // --- floor and ceil. msvcr71 dispatches on an SSE2 flag and juggles mxcsr on every call (5.5 ns); roundsd does it

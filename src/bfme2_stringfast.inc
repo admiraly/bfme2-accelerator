@@ -8,12 +8,17 @@ static tBfme2StringNoCase o_bfme2StringNoCase = NULL;
 static int __fastcall hkBfme2StringNoCase(void* self, void* edx, void* other) {
     if (g_bfme2StringOff) return o_bfme2StringNoCase(self, edx, other);
     DWORD ha = *(DWORD*)self, hb = *(DWORD*)other;
-    unsigned la = ha ? *(WORD*)(ULONG_PTR)(ha + 4) : 0;
-    unsigned lb = hb ? *(WORD*)(ULONG_PTR)(hb + 4) : 0;
-    const char* a = ha ? (const char*)(ULONG_PTR)(ha + 8) : "";
-    const char* b = hb ? (const char*)(ULONG_PTR)(hb + 8) : "";
-    int result = fastStrnicmp(a, b, la < lb ? la : lb);
-    if (!result) result = (int)la - (int)lb;
+    int result = 0;
+    // Shared headers necessarily contain the same bytes and length. This also
+    // covers two empty headers without entering the bounded comparison.
+    if (ha != hb) {
+        unsigned la = ha ? *(WORD*)(ULONG_PTR)(ha + 4) : 0;
+        unsigned lb = hb ? *(WORD*)(ULONG_PTR)(hb + 4) : 0;
+        const char* a = ha ? (const char*)(ULONG_PTR)(ha + 8) : "";
+        const char* b = hb ? (const char*)(ULONG_PTR)(hb + 8) : "";
+        result = fastStrnicmp(a, b, la < lb ? la : lb);
+        if (!result) result = (int)la - (int)lb;
+    }
     unsigned call = ++g_bfme2StringCalls;
     if (call <= 20000 || !(call & 63)) {
         int stock = o_bfme2StringNoCase(self, edx, other);
