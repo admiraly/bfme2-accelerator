@@ -30,7 +30,7 @@ extern "C" {
 static char g_dir[MAX_PATH] = "";
 static char kLogPath[MAX_PATH] = "";
 static volatile LONG g_engineHooks = 0;   // may this build's absolute addresses be patched?
-static bool g_bfme2AudioCandidate = false;
+static bool g_bfme2Candidate = false;
 static void aotrSetDir(HMODULE self) {
     char p[MAX_PATH];
     DWORD n = GetModuleFileNameA(self, p, MAX_PATH);
@@ -1448,6 +1448,7 @@ static void __fastcall hkAnTree(void* ecx, void* edx) {
     ULONG64 t = __rdtsc(); o_an[AN_TREE](ecx, edx); LONG p = g_phase; g_anT[AN_TREE][p] += (LONG64)(__rdtsc() - t); g_anN[AN_TREE][p]++;
 }
 #include "aotr_equivmemo.inc"
+#include "bfme2_equivfast.inc"
 #include "aotr_fastcrt.inc"
 static void installPhaseTimers() {
     __try {
@@ -2669,7 +2670,7 @@ static DWORD WINAPI initThread(LPVOID) {
         bool family = ((DWORD)(ULONG_PTR)base == 0x00400000) && textLen &&
                       GetModuleHandleA("msvcr71.dll") && GetModuleHandleA("mss32.dll");
         if (hit) {
-            g_bfme2AudioCandidate = hit->hash == 0x32667B9B;
+            g_bfme2Candidate = hit->hash == 0x32667B9B;
             g_engineHooks = hit->engineHooks ? 1 : 0;
             logf("init: %s (.text %08X). %s", hit->name, textHash,
                  g_engineHooks ? "Everything is installed." :
@@ -2778,7 +2779,10 @@ static DWORD WINAPI initThread(LPVOID) {
         installAudioLimit();                         // sound request limit check: indexed count instead of a list walk per request (self-proving)
         installDeviceLock();                         // engine device mutex -> user-mode recursive lock
         }
-        if (g_bfme2AudioCandidate) installBfme2AudioIndex(base);
+        if (g_bfme2Candidate) {
+            installBfme2AudioIndex(base);
+            installBfme2EquivFast(base);
+        }
 #ifndef AOTR_PROD
         CreateThread(NULL, 0, rtReport, NULL, 0, NULL);
 #endif
