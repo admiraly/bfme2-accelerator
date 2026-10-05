@@ -162,8 +162,9 @@ static __forceinline int crtLowerAscii(BYTE c) { return (c >= 'A' && c <= 'Z') ?
 // byte order: a later non-ASCII byte cannot change an earlier ASCII answer.
 #define CRT_PAGE_SAFE(a, b) (((((size_t)(a)) | ((size_t)(b))) & 4095) <= 4080)
 static __forceinline __m128i crtFoldAscii16(__m128i x) {
-    __m128i upper = _mm_and_si128(_mm_cmpgt_epi8(x, _mm_set1_epi8('A' - 1)),
-                                _mm_cmpgt_epi8(_mm_set1_epi8('Z' + 1), x));
+    // Adding 63 maps ASCII A..Z to signed -128..-103. All other byte
+    // values map above -103, so one comparison identifies the whole range.
+    __m128i upper = _mm_cmpgt_epi8(_mm_set1_epi8(-102), _mm_add_epi8(x, _mm_set1_epi8(63)));
     return _mm_or_si128(x, _mm_and_si128(upper, _mm_set1_epi8(32)));
 }
 static __forceinline unsigned crtCaseEvents(__m128i x, __m128i y) {

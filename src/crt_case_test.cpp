@@ -92,18 +92,22 @@ int main(int argc, char** argv) {
     for (unsigned length = 8; length <= 256; length *= 2) {
         char* p = (char*)a + 4096; char* q = (char*)b + 4096;
         memset(p, 'A', length); memset(q, 'a', length); p[length] = q[length] = 0;
-        double oldBest = 1e9, newBest = 1e9, crtBest = 1e9;
+        double oldBest = 1e9, newBest = 1e9, crtBest = 1e9, previousSimdBest = 1e9;
         for (int round = 0; round < 5; ++round) {
             double oldTime, newTime;
             if (round & 1) { newTime = measure(fastStricmp, p, q); oldTime = measure(scalarCase, p, q); }
             else { oldTime = measure(scalarCase, p, q); newTime = measure(fastStricmp, p, q); }
             double crtTime = measure(o_crtStricmp, p, q);
+            double previousSimdTime = measure(previousUnboundedCase, p, q);
+            if (previousSimdTime < previousSimdBest) previousSimdBest = previousSimdTime;
             if (oldTime < oldBest) oldBest = oldTime;
             if (newTime < newBest) newBest = newTime;
             if (crtTime < crtBest) crtBest = crtTime;
         }
         printf("equal ASCII %3u bytes: CRT %.2f ns, previous %.2f ns, SIMD %.2f ns, previous/SIMD %.2fx\n",
                length, crtBest, oldBest, newBest, oldBest / newBest);
+        printf("ASCII fold %3u bytes: previous SIMD %.2f ns, single-range SIMD %.2f ns, previous/new %.2fx\n",
+               length, previousSimdBest, newBest, previousSimdBest / newBest);
     }
     for (unsigned length : {4u,8u,12u,16u,24u,32u,64u,128u}) for (unsigned mismatch : {0u,1u}) {
         char* p = (char*)a + 4096; char* q = (char*)b + 4096;
