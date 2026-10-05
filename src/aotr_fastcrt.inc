@@ -49,6 +49,12 @@ static tCrtSet   o_crtMemset = NULL;
 static tCrtLen   o_crtStrlen = NULL;
 static tCrtSCmp  o_crtStricmp = NULL;
 static tCrtSNCmp o_crtStrnicmp = NULL;
+// VS2003's exported locale handles are updated by setlocale. Index 2 is
+// LC_CTYPE; zero denotes C. Read it each call rather than caching locale state.
+static const volatile DWORD* g_crtCTypeHandle = NULL;
+static __forceinline bool crtAsciiLocale() {
+    return g_crtCTypeHandle && *g_crtCTypeHandle == 0;
+}
 
 static __forceinline bool crtFinite(const double* x) {
     return (((const DWORD*)x)[1] & 0x7FF00000u) != 0x7FF00000u;
@@ -174,6 +180,7 @@ static __forceinline unsigned crtCaseEvents(__m128i x, __m128i y) {
     return (~equal | zero | high) & 0xFFFF;
 }
 static int __cdecl fastStricmp(const char* a, const char* b) {
+    if (!crtAsciiLocale()) return o_crtStricmp(a, b);
     const char* x = a; const char* y = b;
     for (;;) {
         if (CRT_PAGE_SAFE(x, y)) {
@@ -193,6 +200,7 @@ static int __cdecl fastStricmp(const char* a, const char* b) {
     }
 }
 static int __cdecl fastStrnicmp(const char* a, const char* b, size_t n) {
+    if (!crtAsciiLocale()) return o_crtStrnicmp(a, b, n);
     size_t i = 0;
     while (i < n) {
         unsigned events;
@@ -349,6 +357,8 @@ static bool crtSse41() {
 }
 static bool crtPrepare(HMODULE crt) {               // resolve the originals (also used by the test program)
     if (!crt) return false;
+    const DWORD* handles = (const DWORD*)GetProcAddress(crt, "__lc_handle");
+    g_crtCTypeHandle = handles ? handles + 2 : NULL;
     o_crtFloor    = (tCrtD1)GetProcAddress(crt, "floor");
     o_crtStrcmp   = (tCrtSCmp)GetProcAddress(crt, "strcmp");
     o_crtStrncmp  = (tCrtSNCmp)GetProcAddress(crt, "strncmp");
