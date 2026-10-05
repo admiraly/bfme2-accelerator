@@ -2375,6 +2375,7 @@ static void rotateLog() {
 #include "bfme2_audioindex.inc"
 #include "aotr_drawgen.inc"
 #include "aotr_rlsort.inc"
+#include "bfme2_rlsort.inc"
 #include "aotr_rt.inc"
 
 // ---------------------------------------------------------------- game-thread sampler v2 (RT build)
@@ -2782,6 +2783,7 @@ static DWORD WINAPI initThread(LPVOID) {
         if (g_bfme2Candidate) {
             installBfme2AudioIndex(base);
             installBfme2EquivFast(base);
+            installBfme2RlSort(base);
         }
 #ifndef AOTR_PROD
         CreateThread(NULL, 0, rtReport, NULL, 0, NULL);

@@ -2,7 +2,8 @@
 struct RlEl { DWORD w[8]; };
 typedef bool (__cdecl* tRlPred)(const RlEl*, const RlEl*);
 typedef void (__cdecl* tRlHeap)(RlEl*, RlEl*, RlEl*, tRlPred);
-static const DWORD kRlHeap = 0x00573B95, kRlLessModel = 0x00572EEA, kRlLessModelInst = 0x00572F07;
+// Bound independently by each verified build installer.
+static DWORD kRlHeap = 0x00573B95, kRlLessModel = 0x00572EEA, kRlLessModelInst = 0x00572F07;
 static volatile LONG g_rlHeapFalls = 0;
 struct RlLessModel {
     bool operator()(const RlEl* a, const RlEl* b) const { return *(DWORD*)(ULONG_PTR)(a->w[0] + 0xC4) < *(DWORD*)(ULONG_PTR)(b->w[0] + 0xC4); }

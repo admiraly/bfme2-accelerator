@@ -10,6 +10,8 @@ static BOOL patchJmp(BYTE*, void*, int) { return FALSE; }
 static void suspendOthers(HANDLE*, int*, int) {}
 static void resumeAll(HANDLE*, int) {}
 #include "bfme2_equivfast.inc"
+#include "aotr_rlsort_algo.h"
+#include "bfme2_rlsort.inc"
 
 static int mappedChild(const char* path, const char* crtPath) {
     HANDLE file = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
@@ -75,6 +77,7 @@ static double timing(tIsEquiv function, void* a, void* b) {
     QueryPerformanceCounter(&end);
     return double(end.QuadPart - begin.QuadPart) * 1e9 / frequency.QuadPart / 2000000;
 }
+static int sortTests();
 static int child(const char* crtPath) {
     BYTE* image = (BYTE*)0x400000;
     if (!bfme2EquivProfileMatches(image)) return 2;
@@ -131,7 +134,7 @@ static int child(const char* crtPath) {
             ++cases;
         }
     }
-    if (!fallback || fast <= 20000 || g_bfme2EquivProof || !g_bfme2EquivChecks) return 1;
+    if (!fallback || fast <= 20000 || g_bfme2EquivCalls <= 20000) return 1;
     printf("BFME II equivalence: %lu native-oracle cases (%lu fast, %lu fallback), %u guard mutations rejected, no differences\n",
            cases, fast, fallback, mutations);
     memset(templates, 0, sizeof(templates));
@@ -151,6 +154,89 @@ static int child(const char* crtPath) {
         }
         printf("empty lists, override depth %u: stock %.2f ns, full hook %.2f ns, stock/hook %.2fx\n",
                depth, stockBest, fastBest, stockBest / fastBest);
+    }
+    return sortTests();
+}
+struct FakeMesh { DWORD vt; LONG refs; BYTE pad[0xC4 - 8]; DWORD model; BYTE pad2[0x310 - 0xC8]; DWORD instance; };
+static std::vector<DWORD> sequence;
+static bool __cdecl recordedLess(const RlEl* a, const RlEl* b) {
+    sequence.push_back(a->w[1]); sequence.push_back(b->w[1]);
+    DWORD ma = ((FakeMesh*)(ULONG_PTR)a->w[0])->model, mb = ((FakeMesh*)(ULONG_PTR)b->w[0])->model;
+    return ma < mb;
+}
+static int sortTests() {
+    if (!bfme2RlProfileMatches((BYTE*)0x400000)) return 2;
+    unsigned mutations = 0;
+    const DWORD addresses[] = { 0x57330A, 0x8C6F77 };
+    const unsigned sizes[] = { sizeof(kBfme2RlFamily), sizeof(kBfme2RlMedian) };
+    for (unsigned i = 0; i < 2; ++i) for (unsigned j = 0; j < sizes[i]; ++j) {
+        BYTE& value = *(BYTE*)(ULONG_PTR)(addresses[i] + j); value ^= 1;
+        bool rejected = !bfme2RlProfileMatches((BYTE*)0x400000); value ^= 1;
+        if (!rejected) return 1;
+        ++mutations;
+    }
+    kRlHeap = 0x574335; kRlLessModel = 0x57368A; kRlLessModelInst = 0x5736A7;
+    o_bfme2RlSort = (tBfme2RlSort)0x574870;
+    typedef void (__cdecl* Core)(RlEl*, RlEl*, int, int, tRlPred);
+    Core core = (Core)0x5746C3;
+    tBfme2RlSort finalPass = (tBfme2RlSort)0x57409D;
+    FakeMesh meshes[128] = {};
+    for (auto& mesh : meshes) mesh.refs = 1000000;
+    const unsigned lengths[] = {0,1,2,3,15,16,17,31,32,63,64,127,256,511,1024};
+    tRlPred predicates[] = {(tRlPred)(ULONG_PTR)kRlLessModel, (tRlPred)(ULONG_PTR)kRlLessModelInst, recordedLess};
+    unsigned cases = 0;
+    for (unsigned pattern = 0; pattern < 9; ++pattern) for (unsigned n : lengths) for (unsigned repeat = 0; repeat < 8; ++repeat) {
+        for (unsigned i = 0; i < 128; ++i) {
+            meshes[i].model = pattern == 0 ? 0 : pattern == 1 ? i % 2 : pattern == 2 ? i % 5 : pattern == 3 ? i : random32() % 128;
+            meshes[i].instance = random32() % 8;
+        }
+        std::vector<RlEl> original(n + 1);
+        for (unsigned i = 0; i < n; ++i) {
+            unsigned m = pattern == 4 ? i % 128 : pattern == 5 ? 127 - i % 128 : pattern == 6 ? (i & 1 ? i % 128 : 0) : random32() % 128;
+            original[i].w[0] = (DWORD)(ULONG_PTR)&meshes[m]; original[i].w[1] = i;
+            for (unsigned j = 2; j < 8; ++j) original[i].w[j] = random32() & 1 ? (DWORD)(ULONG_PTR)&meshes[random32() % 128] : 0;
+        }
+        for (tRlPred pred : predicates) {
+            auto stock = original, fast = original, hooked = original;
+            sequence.clear(); o_bfme2RlSort(stock.data(), stock.data() + n, pred);
+            auto stockSequence = sequence;
+            sequence.clear(); rlFastSort(fast.data(), fast.data() + n, pred);
+            if (memcmp(stock.data(), fast.data(), n * sizeof(RlEl)) || (pred == recordedLess && stockSequence != sequence)) {
+                printf("Sort difference n=%u pattern=%u repeat=%u\n", n, pattern, repeat); return 1;
+            }
+            hkBfme2RlSort(hooked.data(), hooked.data() + n, pred);
+            if (memcmp(stock.data(), hooked.data(), n * sizeof(RlEl)) || g_bfme2RlOff) return 1;
+            // Force stock heap fallback and compare the entire resulting order.
+            stock = original; fast = original; sequence.clear();
+            core(stock.data(), stock.data() + n, 0, 0, pred);
+            finalPass(stock.data(), stock.data() + n, pred);
+            stockSequence = sequence; sequence.clear();
+            RlLessCall less = {pred}; rlSortBudget(fast.data(), fast.data() + n, 0, less, pred);
+            if (memcmp(stock.data(), fast.data(), n * sizeof(RlEl)) || (pred == recordedLess && stockSequence != sequence)) return 1;
+            for (const auto& mesh : meshes) if (mesh.refs != 1000000) { puts("Reference count difference"); return 1; }
+            ++cases;
+        }
+    }
+    if (g_bfme2RlProof || !g_bfme2RlCalls || !g_rlHeapFalls) return 1;
+    printf("BFME II render sort: %u cases, identical bytes/comparator sequences/refcounts, %u guard mutations rejected; forced heap fallback passed\n", cases, mutations);
+    // Measure full runtime hooks including sampled stock-order comparisons.
+    for (unsigned n : {64u, 256u, 1024u}) {
+        std::vector<RlEl> input(n), work(n);
+        for (unsigned i = 0; i < 128; ++i) { meshes[i].model = random32() % 128; meshes[i].instance = random32() % 8; }
+        for (auto& e : input) { e.w[0] = (DWORD)(ULONG_PTR)&meshes[random32() % 128]; e.w[1] = random32(); for (unsigned j = 2; j < 8; ++j) e.w[j] = (DWORD)(ULONG_PTR)&meshes[random32() % 128]; }
+        LARGE_INTEGER frequency; QueryPerformanceFrequency(&frequency);
+        double stockBest = 1e9, hookBest = 1e9;
+        const int iterations = 2000;
+        for (unsigned round = 0; round < 5; ++round) for (unsigned pass = 0; pass < 2; ++pass) {
+            tBfme2RlSort fn = ((round + pass) & 1) ? hkBfme2RlSort : o_bfme2RlSort;
+            LARGE_INTEGER begin, end; QueryPerformanceCounter(&begin);
+            for (int i = 0; i < iterations; ++i) { memcpy(work.data(), input.data(), n * sizeof(RlEl)); fn(work.data(), work.data() + n, predicates[0]); }
+            QueryPerformanceCounter(&end);
+            double ns = double(end.QuadPart - begin.QuadPart) * 1e9 / frequency.QuadPart / iterations;
+            if (fn == o_bfme2RlSort && ns < stockBest) stockBest = ns;
+            if (fn == hkBfme2RlSort && ns < hookBest) hookBest = ns;
+        }
+        printf("render sort %u records (includes input copy): stock %.2f ns, full hook %.2f ns, stock/hook %.2fx\n", n, stockBest, hookBest, stockBest / hookBest);
     }
     return 0;
 }

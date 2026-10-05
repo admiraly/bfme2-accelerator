@@ -2,16 +2,15 @@
 #include "bfme2_equiv_profile.h"
 static tIsEquiv o_bfme2Equiv = NULL;
 static volatile LONG g_bfme2EquivOff = 0;
-static __declspec(thread) unsigned g_bfme2EquivProof = 20000;
-static __declspec(thread) unsigned g_bfme2EquivChecks = 0;
+static __declspec(thread) unsigned g_bfme2EquivCalls = 0;
 static BYTE __fastcall hkBfme2Equiv(void* self, void* edx, void* other) {
     if (g_bfme2EquivOff) return o_bfme2Equiv(self, edx, other);
     int result = bfme2EquivDecision((const BYTE*)self, (const BYTE*)other);
     if (result < 0) return o_bfme2Equiv(self, edx, other);
     // Proof state is per thread; result computation itself is stateless.
-    if (g_bfme2EquivProof || !(++g_bfme2EquivChecks & 63)) {
+    unsigned call = ++g_bfme2EquivCalls;
+    if (call <= 20000 || !(call & 63)) {
         BYTE stock = o_bfme2Equiv(self, edx, other);
-        if (g_bfme2EquivProof) --g_bfme2EquivProof;
         if (stock != result) {
             InterlockedExchange(&g_bfme2EquivOff, 1);
             logf("bfme2-equiv: fast answer differed - OFF; stock answer retained.");
