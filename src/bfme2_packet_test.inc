@@ -100,10 +100,10 @@ static int packetTests() {
     bfme2PacketTransform<true>(pages + 4096, -1);
     VirtualFree(pages, 0, MEM_RELEASE);
     // Exercise opt-out, code mismatch, write refusal before installing.
-    SetEnvironmentVariableA("BFME2_NETFAST", NULL);
+    SetEnvironmentVariableA("BFME2_NETFAST", "0");
     installBfme2PacketFast(image);
     if (!bfme2PacketProfileMatches(image)) return packetFailure(__LINE__);
-    SetEnvironmentVariableA("BFME2_NETFAST", "1");
+    SetEnvironmentVariableA("BFME2_NETFAST", NULL);
     *(BYTE*)0x8D4A8E ^= 1; installBfme2PacketFast(image); *(BYTE*)0x8D4A8E ^= 1;
     if (!bfme2PacketProfileMatches(image)) return packetFailure(__LINE__);
     failPatch = true; installBfme2PacketFast(image); failPatch = false;

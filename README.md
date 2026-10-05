@@ -2,6 +2,11 @@
 
 This fork's BFME II optimization work, reproducible baseline audit and CI coverage
 are documented in [the optimization track](docs/bfme2-optimization.md).
+For recognized vanilla 1.06, verified audio indexing, template equivalence, render
+sorting, native string comparisons and packet processing are enabled by default.
+No environment setup is required; individual `BFME2_*` variables set to `0`
+disable a feature for troubleshooting. Build/byte guards and stock fallbacks
+remain in place. Whole-game and multiplayer validation remain outstanding.
 
 An in-process accelerator for *The Lord of the Rings: The Battle for Middle-earth II* and *The Rise of the
 Witch-king* (EA SAGE engine, 2006), and for the mods built on them. It is a 32-bit DLL that a small loader

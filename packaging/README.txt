@@ -12,21 +12,24 @@ Run the loader and select the game. Unavailable games can be configured through
 Paths. Read bfme2_accel.log next to the DLL for recognition and installed hooks.
 The packaged DLL is the production build, with diagnostic telemetry omitted.
 
-Experimental BFME II vanilla 1.06 options
+Default BFME II vanilla 1.06 optimizations
 ----------------------------------------
-From a Command Prompt in this folder, enable features independently:
+Launch bfme2_accel_loader.exe normally. Audio indexing, render sorting, template
+equivalence, native string comparisons and packet processing are enabled by
+default for recognized vanilla 1.06 code with matching byte guards.
 
-  set BFME2_AUDIOINDEX=1
-  set BFME2_RLSORT=1
-  set BFME2_EQUIVFAST=1
-  set BFME2_STRINGFAST=1
-  set BFME2_NETFAST=1
+For troubleshooting, each feature can still be disabled independently by setting
+its environment variable to 0 before launching:
+
+  set BFME2_AUDIOINDEX=0
+  set BFME2_RLSORT=0
+  set BFME2_EQUIVFAST=0
+  set BFME2_STRINGFAST=0
+  set BFME2_NETFAST=0
   bfme2_accel_loader.exe
 
-These BFME II engine features are OFF unless explicitly opted in. They require
-recognized game code and matching byte guards. Leave a variable unset or set
-it to 0 to keep that feature off. Test one feature at a time before combining.
-AOTR_AUDIOLIMIT=0 also disables audio indexing.
+Unset variables enable the defaults. AOTR_AUDIOLIMIT=0 also disables indexing.
+Unknown executables or changed guards retain stock behavior.
 
 Audio indexing reduces repeated request-list traversal. Render sorting avoids
 reference-count churn while preserving stock record ordering. Template
@@ -44,7 +47,7 @@ save/replay compatibility, multiplayer determinism or long-session stability.
 Those in-game checks remain outstanding. This is a testing build, not a release.
 
 Implementation and evidence:
-https://github.com/admiraly/bfme2-accelerator/pull/1
+https://github.com/admiraly/bfme2-accelerator/tree/main
 
 Optional 4 GB address-space patch (64-bit Windows)
 ------------------------------------------------
@@ -63,4 +66,4 @@ the accelerator's runtime-only hooks; generating a copy does not install it.
 BFME2_NETFAST replaces only the byte-identical packet scrambling loops. It
 retains packet format, CRC, socket operations, timing and command order. Native
 byte equivalence is checked offline and sampled at runtime; two-client testing
-is still required before making it default. It does not reduce ping.
+remains outstanding. It does not reduce ping.

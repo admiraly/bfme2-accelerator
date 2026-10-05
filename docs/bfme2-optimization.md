@@ -1,8 +1,10 @@
 # BFME II optimization track
 
 This fork is the implementation home for extending the accelerator to BFME II.
-Open-BFME-1 and Open-BFME-2 supply reference evidence; engine-specific hooks
-remain disabled until their target addresses, ABI and touched layouts are verified.
+Open-BFME-1 and Open-BFME-2 supply reference evidence; the five verified BFME II 1.06 bindings are enabled by default. Other
+engine-specific hooks remain disabled until their target addresses, ABI and
+touched layouts are verified. Set the relevant `BFME2_*` variable to `0` to
+disable a verified binding; no environment setup is needed to enable it.
 
 ## Reproduce the first preflight
 
@@ -31,7 +33,7 @@ Accelerator donor: `76ccf2dc1fac0baf644987efea6ad460f8cb01d2`.
 | Accelerator recognizes this build | `.text` hash `0x32667B9B` | Existing BFME2 build-table entry applies |
 | Engine hooks disabled | BFME2 entry has `engineHooks = false` | Portable features only; runtime prerequisites still apply |
 | Required family imports present | `msvcr71.dll`, `mss32.dll`; image base `0x00400000` | Static family prerequisites, not proof of loaded DLLs |
-| Audio limit loop has one exact hit | 54 bytes at VA `0x004576CB`; donor VA `0x00456E88` | Guarded opt-in audio binding; runtime validation pending |
+| Audio limit loop has one exact hit | 54 bytes at VA `0x004576CB`; donor VA `0x00456E88` | Guarded default audio binding; runtime validation pending |
 
 Open-BFME-2's matched ledger also supplies source leads for:
 
@@ -93,14 +95,13 @@ The mutation callbacks track the audio manager's list at offset `0x98`. The
 original list methods remain callable through instruction-aligned trampolines.
 The count loop preserves both stock counters and the original continuation.
 
-Enable it for a controlled vanilla 1.06 test from a Command Prompt:
+Launch the default vanilla 1.06 build from a Command Prompt:
 
 ```bat
-set BFME2_AUDIOINDEX=1
 bfme2_accel_loader.exe
 ```
 
-It is off by default and applies only to the recognized BFME II 1.06 text hash.
+It is enabled by default and applies only to the recognized BFME II 1.06 text hash.
 All eight byte guards must match; all seven patch sites must be writable before
 any code changes. Guards are checked again with other threads suspended. A
 changed guard or preflight failure leaves the feature off. `AOTR_AUDIOLIMIT=0`
@@ -114,19 +115,17 @@ Shared-list detours can add overhead outside the audio manager; a battle
 benchmark must measure both their cost and the saved traversal work.
 
 This is an experimental binding, not a measured speedup. Validate battle audio,
-long sessions, loading/saving, replays and multiplayer before changing defaults.
+long sessions, loading/saving, replays and multiplayer when evaluating the enabled defaults.
 
 ## Experimental native BFME II optimizations
 
 Two further bindings are available independently of the global engine-hook flag:
 
 ```bat
-set BFME2_EQUIVFAST=1
-set BFME2_RLSORT=1
 bfme2_accel_loader.exe
 ```
 
-Both are off by default and restricted to the recognized vanilla 1.06 build
+Both are enabled by default and restricted to the recognized vanilla 1.06 build
 loaded at `0x00400000`.
 The equivalence binding guards the complete 335-byte routine at VA `0x0073BB04`
 and its 14-byte final-override getter. It answers null, identity and empty-list
@@ -233,7 +232,7 @@ are needed; use the production DLL for battle performance measurements.
 
 ## Experimental native string comparison
 
-`BFME2_STRINGFAST=1` binds `StringBase::compareNoCase` at VA `0x00406A00`
+The default string optimization binds `StringBase::compareNoCase` at VA `0x00406A00`
 for vanilla 1.06. It reads each current header, its unsigned 16-bit length at
 `+4`, and its bytes at `+8` directly, replacing two wrapper calls before the
 bounded CRT comparison. Null headers represent empty strings. There is no
@@ -307,7 +306,7 @@ do not establish in-game threading, save/replay compatibility or battle FPS.
 
 ## Next implementation steps
 
-1. Validate the opt-in audio binding in a running game. Profile indexed and
+1. Validate the default audio binding in a running game. Profile indexed and
    stock runs of the same replay, review mismatch and mutation counters, and
    audit additional mutations and audio manager lifetime paths.
 2. Profile a reproducible BFME II battle with portable features enabled and
@@ -317,7 +316,7 @@ do not establish in-game threading, save/replay compatibility or battle FPS.
 4. Investigate pose workers and logic spreading after their dependency maps
    are complete. Preserve floating-point state, operation order and object
    lifetime; validate rendering interactions.
-5. Test saves, replays and two-client multiplayer before changing defaults.
+5. Test saves, replays and two-client multiplayer when evaluating the enabled defaults.
 
 Do not set BFME2's global `engineHooks` flag to true: that would enable donor
 addresses across several unrelated subsystems. Introduce verified per-build,
@@ -353,9 +352,9 @@ equivalence needs D3D9/D3DX and an appropriate graphics environment. No battle
 benchmark, multiplayer validation or speedup claim is supplied by this CI.
 
 
-## Opt-in network packet CPU optimization
+## Default network packet CPU optimization
 
-`BFME2_NETFAST=1` replaces the active inline packet scrambling blocks in
+The default network optimization replaces the active inline packet scrambling blocks in
 vanilla 1.06, independently derived from the pinned machine code. The unused
 standalone encode/decode helpers remain intact as native runtime oracles.
 
@@ -401,7 +400,7 @@ protected-page boundaries and every guarded-byte mutation, and deliberately
 inject an incorrect oracle to verify restoration and disable behavior. Timings
 measure synthetic packet CPU work including runtime sampling; they do not
 measure multiplayer latency or overall frame rate. Network sessions and
-installation-time thread concurrency remain untested. This stays opt-in.
+installation-time thread concurrency remain untested. The user requested default activation; these in-game checks remain outstanding.
 
 Frame waits depend on command availability and the existing native pacing.
 Reducing packet CPU work cannot remove the wait for another player's commands.

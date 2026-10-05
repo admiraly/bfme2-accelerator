@@ -1,13 +1,13 @@
+#include "bfme2_features.h"
 // Experimental BFME II 1.06 binding of the existing audio index.
 // Shared list operations are hooked at entry; the index tracks only manager+0x98.
 // Unlike the RotWK binding, this does not depend on enumerating audio call sites.
 #include "bfme2_audio_profile.h"
 static void installBfme2AudioIndex(BYTE* base) {
-    char env[8] = {};
-    if (!GetEnvironmentVariableA("BFME2_AUDIOINDEX", env, sizeof(env)) || strcmp(env, "1")) {
-        logf("bfme2-audio: experimental index OFF (BFME2_AUDIOINDEX=1 opts in)."); return;
+    if (!bfme2FeatureEnabled("BFME2_AUDIOINDEX")) {
+        logf("bfme2-audio: experimental index OFF (BFME2_AUDIOINDEX=0 disables)."); return;
     }
-    env[0] = 0;
+    char env[8] = {};
     if (GetEnvironmentVariableA("AOTR_AUDIOLIMIT", env, sizeof(env)) && env[0] == '0') return;
     bool matches = false;
     __try { matches = bfme2AudioProfileMatches(base); }

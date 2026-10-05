@@ -1,3 +1,4 @@
+#include "bfme2_features.h"
 #include "bfme2_packet_algo.h"
 #include "bfme2_packet_profile.h"
 static volatile LONG g_bfme2PacketOff = 0;
@@ -127,9 +128,8 @@ static __declspec(naked) void hkBfme2PacketReceive() {
     __asm { jmp eax }
 }
 static void installBfme2PacketFast(BYTE* base) {
-    char env[8] = {};
-    if (!GetEnvironmentVariableA("BFME2_NETFAST", env, sizeof(env)) || strcmp(env, "1")) {
-        logf("bfme2-network: OFF (BFME2_NETFAST=1 opts in)."); return;
+    if (!bfme2FeatureEnabled("BFME2_NETFAST")) {
+        logf("bfme2-network: OFF (BFME2_NETFAST=0 disables)."); return;
     }
     if ((DWORD)(ULONG_PTR)base != 0x400000) return;
     bool matches = false;
@@ -146,5 +146,5 @@ static void installBfme2PacketFast(BYTE* base) {
         receive = patchJmp((BYTE*)0x008D4D87, (void*)&hkBfme2PacketReceive, 6);
     }
     resumeAll(threads, count);
-    logf("bfme2-network: opt-in packet transforms send=%d receive=%d; sampled stock checks retained. Multiplayer validation pending.", send, receive);
+    logf("bfme2-network: default packet transforms send=%d receive=%d; sampled stock checks retained. Multiplayer validation pending.", send, receive);
 }

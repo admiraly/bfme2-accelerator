@@ -1,3 +1,4 @@
+#include "bfme2_features.h"
 // BFME II binding: sort only. Push/erase/flush donor hooks stay disabled.
 #include "bfme2_rlsort_profile.h"
 typedef void (__cdecl* tBfme2RlSort)(RlEl*, RlEl*, tRlPred);
@@ -32,9 +33,8 @@ static void __cdecl hkBfme2RlSort(RlEl* begin, RlEl* end, tRlPred pred) {
     }
 }
 static void installBfme2RlSort(BYTE* base) {
-    char env[8] = {};
-    if (!GetEnvironmentVariableA("BFME2_RLSORT", env, sizeof(env)) || strcmp(env, "1")) {
-        logf("bfme2-rlsort: OFF (BFME2_RLSORT=1 opts in)."); return;
+    if (!bfme2FeatureEnabled("BFME2_RLSORT")) {
+        logf("bfme2-rlsort: OFF (BFME2_RLSORT=0 disables)."); return;
     }
     bool matches = false;
     __try { matches = bfme2RlProfileMatches(base); }
@@ -56,5 +56,5 @@ static void installBfme2RlSort(BYTE* base) {
         o_bfme2RlSort = NULL; VirtualFree(trampoline, 0, MEM_RELEASE);
         logf("bfme2-rlsort: guard changed or write access refused - OFF."); return;
     }
-    logf("bfme2-rlsort: opt-in 32-byte sort installed; stock heap fallback and ordering checks retained. In-game validation pending.");
+    logf("bfme2-rlsort: default 32-byte sort installed; stock heap fallback and ordering checks retained. In-game validation pending.");
 }

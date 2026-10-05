@@ -401,12 +401,12 @@ static void __cdecl wrongSort(RlEl* begin, RlEl*, tRlPred) { begin->w[1] ^= 0x55
 static int __fastcall wrongString(void*, void*, void*) { return 123; }
 static int installationTests() {
     // Before touching entry points, exercise opt-out and failure paths.
-    SetEnvironmentVariableA("BFME2_STRINGFAST", NULL);
-    SetEnvironmentVariableA("BFME2_EQUIVFAST", NULL); SetEnvironmentVariableA("BFME2_RLSORT", NULL);
+    SetEnvironmentVariableA("BFME2_STRINGFAST", "0");
+    SetEnvironmentVariableA("BFME2_EQUIVFAST", "0"); SetEnvironmentVariableA("BFME2_RLSORT", "0");
     installBfme2EquivFast((BYTE*)0x400000); installBfme2RlSort((BYTE*)0x400000); installBfme2StringFast((BYTE*)0x400000);
     if (!bfme2EquivProfileMatches((BYTE*)0x400000) || !bfme2RlProfileMatches((BYTE*)0x400000) || !bfme2StringProfileMatches((BYTE*)0x400000)) return 1;
-    SetEnvironmentVariableA("BFME2_STRINGFAST", "1");
-    SetEnvironmentVariableA("BFME2_EQUIVFAST", "1"); SetEnvironmentVariableA("BFME2_RLSORT", "1");
+    SetEnvironmentVariableA("BFME2_STRINGFAST", NULL);
+    SetEnvironmentVariableA("BFME2_EQUIVFAST", NULL); SetEnvironmentVariableA("BFME2_RLSORT", NULL);
     for (unsigned failure = 0; failure < 3; ++failure) {
         failAllocation = failure == 0; failPatch = failure == 1;
         if (failure == 2) { *(BYTE*)0x73BB04 ^= 1; *(BYTE*)0x574870 ^= 1; *(BYTE*)0x406A00 ^= 1; }
@@ -497,7 +497,26 @@ static int installationTests() {
     puts("BFME II native detours: opt-out, guard/allocation/write failures, trampoline calls, 20,000 populated-list/string integration cases, size/comparator limits and all three mismatch fallbacks passed");
     return 0;
 }
+static int featureDefaultTests() {
+    const char* names[] = {"BFME2_AUDIOINDEX", "BFME2_EQUIVFAST", "BFME2_RLSORT", "BFME2_STRINGFAST", "BFME2_NETFAST"};
+    for (const char* name : names) {
+        SetEnvironmentVariableA(name, NULL);
+        if (!bfme2FeatureEnabled(name)) return 1;
+        SetEnvironmentVariableA(name, "0");
+        if (bfme2FeatureEnabled(name)) return 1;
+        SetEnvironmentVariableA(name, "1");
+        if (!bfme2FeatureEnabled(name)) return 1;
+        for (const char* bad : {"unexpected", "01", "true"}) {
+            SetEnvironmentVariableA(name, bad);
+            if (bfme2FeatureEnabled(name)) return 1;
+        }
+        SetEnvironmentVariableA(name, NULL);
+    }
+    puts("BFME II feature policy: all five default ON, explicit opt-out and invalid-value refusal passed");
+    return 0;
+}
 static int networkChild(const char* crtPath) {
+    if (featureDefaultTests()) return 1;
     int result = child(crtPath);
     if (result) return result;
     return packetTests();

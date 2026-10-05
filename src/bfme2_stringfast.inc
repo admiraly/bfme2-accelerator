@@ -1,3 +1,4 @@
+#include "bfme2_features.h"
 // Direct binding for native StringBase case-insensitive comparisons.
 // Current headers are read on every call; locale-sensitive bytes retain CRT behavior.
 #include "bfme2_string_profile.h"
@@ -31,9 +32,8 @@ static int __fastcall hkBfme2StringNoCase(void* self, void* edx, void* other) {
     return result;
 }
 static void installBfme2StringFast(BYTE* base) {
-    char env[8] = {};
-    if (!GetEnvironmentVariableA("BFME2_STRINGFAST", env, sizeof(env)) || strcmp(env, "1")) {
-        logf("bfme2-string: OFF (BFME2_STRINGFAST=1 opts in)."); return;
+    if (!bfme2FeatureEnabled("BFME2_STRINGFAST")) {
+        logf("bfme2-string: OFF (BFME2_STRINGFAST=0 disables)."); return;
     }
     if (!o_crtStrnicmp || (DWORD)(ULONG_PTR)base != 0x400000) {
         logf("bfme2-string: CRT or image-base prerequisite missing - OFF."); return;
@@ -56,5 +56,5 @@ static void installBfme2StringFast(BYTE* base) {
         o_bfme2StringNoCase = NULL; VirtualFree(trampoline, 0, MEM_RELEASE);
         logf("bfme2-string: guard changed or write access refused - OFF."); return;
     }
-    logf("bfme2-string: opt-in StringBase comparison installed; exact return/locale handling and sampled stock checks retained. In-game validation pending.");
+    logf("bfme2-string: default StringBase comparison installed; exact return/locale handling and sampled stock checks retained. In-game validation pending.");
 }

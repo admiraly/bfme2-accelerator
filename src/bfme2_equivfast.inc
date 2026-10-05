@@ -1,3 +1,4 @@
+#include "bfme2_features.h"
 #include "bfme2_equiv_core.h"
 #include "bfme2_equiv_profile.h"
 static tIsEquiv o_bfme2Equiv = NULL;
@@ -20,9 +21,8 @@ static BYTE __fastcall hkBfme2Equiv(void* self, void* edx, void* other) {
     return (BYTE)result;
 }
 static void installBfme2EquivFast(BYTE* base) {
-    char env[8] = {};
-    if (!GetEnvironmentVariableA("BFME2_EQUIVFAST", env, sizeof(env)) || strcmp(env, "1")) {
-        logf("bfme2-equiv: OFF (BFME2_EQUIVFAST=1 opts in)."); return;
+    if (!bfme2FeatureEnabled("BFME2_EQUIVFAST")) {
+        logf("bfme2-equiv: OFF (BFME2_EQUIVFAST=0 disables)."); return;
     }
     bool matches = false;
     __try { matches = bfme2EquivProfileMatches(base); }
@@ -42,5 +42,5 @@ static void installBfme2EquivFast(BYTE* base) {
         o_bfme2Equiv = NULL; VirtualFree(trampoline, 0, MEM_RELEASE);
         logf("bfme2-equiv: guard changed or write access refused - OFF."); return;
     }
-    logf("bfme2-equiv: opt-in empty-list fast path installed; populated lists use stock; shadow checks retained. In-game validation pending.");
+    logf("bfme2-equiv: default empty-list fast path installed; populated lists use stock; shadow checks retained. In-game validation pending.");
 }
