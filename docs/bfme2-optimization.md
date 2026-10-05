@@ -351,3 +351,53 @@ reference does not establish that every installation uses that exact DLL. The so
 test is compiled but currently expects the donor RotWK addresses. Render
 equivalence needs D3D9/D3DX and an appropriate graphics environment. No battle
 benchmark, multiplayer validation or speedup claim is supplied by this CI.
+
+
+## Opt-in network packet CPU optimization
+
+`BFME2_NETFAST=1` replaces the active inline packet scrambling blocks in
+vanilla 1.06, independently derived from the pinned machine code. The unused
+standalone encode/decode helpers remain intact as native runtime oracles.
+
+| Site | Address | Role |
+| --- | --- | --- |
+| Queue-send function | `0x008D4EC6` | Guard all 180 bytes |
+| Send block | `0x008D4F47` → `0x008D4F75` | Store the existing CRC, transform payload plus CRC |
+| Receive function | `0x008D4D08` | Guard all 446 bytes |
+| Receive block | `0x008D4D87` → `0x008D4DBF` | Transform received datagram before existing CRC checks |
+| Native encode/decode helpers | `0x008D4A8E` / `0x008D4AC0` | Guard all 100 bytes; private ECX-buffer/EAX-length ABI |
+
+Each full 32-bit word uses a wrapping key starting at `0x38D9B7D4`, subtracting
+`0x7F39C50E` per word. Encoding byte-swaps the word after XOR; decoding does
+so before XOR. The native loops call Winsock `htonl` for every word. The new
+implementation handles four words per SSE2 operation, with inline scalar tails.
+Trailing one to three bytes remain untouched, matching native behavior. There
+are no allocations in packet processing and no change to wire bytes, checksums,
+packet counts, command ordering, socket operations, retries or frame admission.
+
+The two six-byte detours replace complete instructions. The send continuation
+returns AL=1 and restores its nonvolatile registers. The receive continuation
+has no live loop scratch slots or flags; ESI, EDI and EBP remain intact. Enclosing
+function guards also cover those continuations. Each site is independent: a
+refused write can leave that direction stock without requiring rollback.
+
+Runtime proof compares the first 20,000 eligible calls per direction per thread,
+then one in 64, against the unmodified native helper. A byte mismatch restores
+the native packet and disables both directions. Lengths below four or above the
+native 1038-byte receive bound use stock code. Shadow copies use a separate
+non-inlined function so the unchecked path does not allocate the 1038-byte stack
+buffer. Proof sampling can initially cost more than stock processing.
+
+Linux checks compare every size through 1100 bytes and all 32 alignments to an
+independent byte-wise oracle. Windows tests additionally execute the mapped
+native helpers and the real inline blocks before and after detouring, check
+protected-page boundaries and every guarded-byte mutation, and deliberately
+inject an incorrect oracle to verify restoration and disable behavior. Timings
+measure synthetic packet CPU work including runtime sampling; they do not
+measure multiplayer latency or overall frame rate. Network sessions and
+installation-time thread concurrency remain untested. This stays opt-in.
+
+Frame waits depend on command availability and the existing native pacing.
+Reducing packet CPU work cannot remove the wait for another player's commands.
+Changing delay, retry, buffering or frame-rate rules requires a separate
+compatibility investigation and two-client measurements.

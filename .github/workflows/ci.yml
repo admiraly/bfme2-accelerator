@@ -40,6 +40,10 @@ jobs:
         run: |
           g++ -std=c++11 -O2 -Wall -Wextra -o /tmp/bfme2-audio-guard-test src/bfme2_audio_guard_test.cpp
           python tools/check_audio_profile.py baseline-reference/baselines/bfme2/workshop-vanilla-1.06/files/game.dat /tmp/bfme2-audio-guard-test
+      - name: Check byte-identical SIMD packet transforms
+        run: |
+          g++ -std=c++11 -O2 -msse2 -Wall -Wextra -o /tmp/bfme2-packet-test src/bfme2_packet_algo_test.cpp
+          /tmp/bfme2-packet-test
       - uses: actions/upload-artifact@v4
         with:
           name: bfme2-baseline-audit

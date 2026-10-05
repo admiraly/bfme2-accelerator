@@ -20,6 +20,7 @@ From a Command Prompt in this folder, enable features independently:
   set BFME2_RLSORT=1
   set BFME2_EQUIVFAST=1
   set BFME2_STRINGFAST=1
+  set BFME2_NETFAST=1
   bfme2_accel_loader.exe
 
 These BFME II engine features are OFF unless explicitly opted in. They require
@@ -58,3 +59,8 @@ Restart the game. To undo, restore game.dat.pre-laa as game.dat.
 This raises the x86 virtual address-space ceiling from 2 GB to 4 GB on 64-bit
 Windows. High-address game stability is not yet tested. This is separate from
 the accelerator's runtime-only hooks; generating a copy does not install it.
+
+BFME2_NETFAST replaces only the byte-identical packet scrambling loops. It
+retains packet format, CRC, socket operations, timing and command order. Native
+byte equivalence is checked offline and sampled at runtime; two-client testing
+is still required before making it default. It does not reduce ping.

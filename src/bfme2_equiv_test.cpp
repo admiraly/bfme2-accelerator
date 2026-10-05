@@ -28,6 +28,7 @@ static void suspendOthers(HANDLE*, int*, int) {}
 static void resumeAll(HANDLE*, int) {}
 #include "aotr_fastcrt.inc"
 #include "bfme2_stringfast.inc"
+#include "bfme2_packetfast.inc"
 #include "bfme2_equivfast.inc"
 #include "aotr_rlsort_algo.h"
 #include "bfme2_rlsort.inc"
@@ -99,6 +100,8 @@ static double timing(tIsEquiv function, void* a, void* b) {
 static int installationTests();
 static int sortTests();
 static int stringTests();
+#include "bfme2_packet_test.inc"
+
 static int child(const char* crtPath) {
     BYTE* image = (BYTE*)0x400000;
     if (!bfme2EquivProfileMatches(image)) return 2;
@@ -493,8 +496,13 @@ static int installationTests() {
     puts("BFME II native detours: opt-out, guard/allocation/write failures, trampoline calls, 20,000 populated-list/string integration cases, size/comparator limits and all three mismatch fallbacks passed");
     return 0;
 }
+static int networkChild(const char* crtPath) {
+    int result = child(crtPath);
+    if (result) return result;
+    return packetTests();
+}
 int main(int argc, char** argv) {
-    if (argc == 3 && !strcmp(argv[1], "child")) return child(argv[2]);
+    if (argc == 3 && !strcmp(argv[1], "child")) return networkChild(argv[2]);
     if (argc == 3) return mappedChild(argv[1], argv[2]);
     return 2;
 }
