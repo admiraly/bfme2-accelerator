@@ -135,6 +135,18 @@ jobs:
           name: bfme2-native-optimization-checks
           path: bfme2-equiv-results.txt
           retention-days: 14
+      - name: Check overlapping memory moves and measure complete replacements
+        shell: pwsh
+        working-directory: src
+        run: |
+          $crt = (Resolve-Path ../crt-reference/build/toolchains/vs2003/msvcr71.dll).Path
+          & .\crt_memmove_test.exe $crt | Tee-Object ../crt-memmove-results.txt
+          if ($LASTEXITCODE -ne 0) { throw "Overlapping memmove checks failed" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: crt-memmove-equivalence-and-timings
+          path: crt-memmove-results.txt
+          retention-days: 14
       - name: Package development build
         shell: pwsh
         run: |

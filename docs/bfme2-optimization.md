@@ -431,15 +431,21 @@ rows when evaluating this build; helper-only timings do not prove a faster hook.
 `BFME2_CRCFAST=0` disables the default binding at VA `0x007EC8F7`.
 This native helper computes rotate-left-by-one plus each unsigned input byte,
 with 32-bit wrapping after every byte. It is not IEEE CRC32 or CRC32C. The
-independently implemented replacement uses a rotate instruction and an
-8-byte unroll without regrouping additions, which would alter carry behavior.
+independently implemented replacement folds eight bytes with a weighted sum and
+one end-around carry when a conservative bit guard proves that no native
+addition can wrap. The sum is at most 65025. If initial bits 15..23 are all one,
+it retains the exact eight-step recurrence; this covers every potentially
+overflowing rotated input because each dangerous value has its high 16 bits
+set. The fallback preserves carry behavior and the distinct all-ones/zero hash
+representations. Computation uses integer operations, retaining native XMM and
+floating-point controls, which the native-entry tests explicitly check.
 Null input returns the initial hash even for a nonzero length; an empty range
 is never read. The function writes neither input bytes nor RNG state.
 
 The entire 43-byte helper is guarded, including RET (the reconstruction comment
 counts 42 bytes and omits that final instruction). The six-byte stolen prologue
 contains only whole instructions. A trampoline preserves the original cdecl
-oracle; the first 20,000 nonempty calls per thread and one in 64 thereafter are
+oracle; the first 20,000 eligible calls per thread and one in 64 thereafter are
 compared with stock. Mismatches retain stock hashes and disable the replacement.
 Allocation, guard and write failures leave the original entry intact.
 
@@ -451,3 +457,29 @@ the original RNG checksum getter at `0x00633F70` against its six-word state at
 Complete entry-point benchmarks include detour and sampled-proof overhead.
 These tests establish function equivalence, not full multiplayer determinism or
 an overall lag/FPS gain; live sessions remain untested.
+
+
+Tiny hashes (up to eight bytes), empty ranges and null buffers use an integer
+assembly path in the entry hook to avoid C/TLS setup. They honor the disable
+flag and are covered by native comparisons, but do not perform runtime shadow
+checks. Larger hashes retain sampled proof. The initial unrolled-only candidate
+was slower for tiny inputs and close to parity for large buffers; complete-hook
+benchmarks, rather than helper-only results, drove these revisions.
+
+## Memory moves and floating-point determinism audit
+
+Forward-overlapping memmove ranges now use increasing SSE2 blocks and exact-width
+tails instead of REP MOVSB. Backward moves retain decreasing blocks and replace
+byte-wise tails with 16/8/4/2/1-byte chunks. For 16..32 bytes, both overlapping
+source blocks are loaded before either store. No tail is re-read after stores.
+Tests compare the whole destination buffer and return pointer with the pinned
+CRT, across both directions, small displacement, alignments, larger ranges and
+protected-page ends. Timings compare native CRT, the previous accelerator and
+the replacement; they do not establish a frame-rate improvement.
+
+A new 105,984-case floating-point matrix checked x87 precision/rounding and
+MXCSR rounding, DAZ, FTZ and pre-existing exception flags. Values and control
+settings matched native floor/ceil in every case. There were 26,894 differences
+in exception-status side effects. Those are diagnostic findings, not a confirmed
+source of game desync; engine consumption of those flags needs further tracing.
+No floating-point mode is forcibly changed by this pass.

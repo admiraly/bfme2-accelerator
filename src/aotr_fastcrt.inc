@@ -114,21 +114,44 @@ static void* __cdecl fastMemcpy(void* dst, const void* src, size_t n) {
     crtCopyFwd(d, s, n);
     return dst;
 }
-// Overlapping ranges cannot use the two-overlapping-stores trick of crtCopyFwd: its last block re-reads source bytes
-// the earlier stores have already overwritten. Ranges that overlap take a strictly ordered path instead - rep movsb
-// upwards, or 32-byte blocks downwards with the leftover head copied backwards one byte at a time.
+// Overlap requires strictly ordered blocks. Do not re-read an overlapping tail
+// after earlier stores. Two loads before either store are safe for 16..32 bytes;
+// longer ranges walk in the appropriate direction and use exact-width tails.
 static void* __cdecl fastMemmove(void* dst, const void* src, size_t n) {
     BYTE* d = (BYTE*)dst; const BYTE* s = (const BYTE*)src;
     if (!crtOverlap(d, s, n)) { crtCopyFwd(d, s, n); return dst; }
     if (d == s) return dst;
-    if (d < s) { __movsb(d, s, n); return dst; }
+    if (n >= 16 && n <= 32) {
+        __m128i a = _mm_loadu_si128((const __m128i*)s), b = _mm_loadu_si128((const __m128i*)(s + n - 16));
+        _mm_storeu_si128((__m128i*)d, a); _mm_storeu_si128((__m128i*)(d + n - 16), b);
+        return dst;
+    }
+    if (d < s) {
+        size_t i = 0;
+        for (; n - i >= 32; i += 32) {
+            __m128i a = _mm_loadu_si128((const __m128i*)(s + i)), b = _mm_loadu_si128((const __m128i*)(s + i + 16));
+            _mm_storeu_si128((__m128i*)(d + i), a); _mm_storeu_si128((__m128i*)(d + i + 16), b);
+        }
+        if (n - i >= 16) {
+            __m128i a = _mm_loadu_si128((const __m128i*)(s + i));
+            _mm_storeu_si128((__m128i*)(d + i), a); i += 16;
+        }
+        // Remaining <16 bytes use increasing exact-width chunks, which are
+        // safe even when source and destination differ by only one byte.
+        crtCopyFwd(d + i, s + i, n - i);
+        return dst;
+    }
     size_t i = n;
     while (i >= 32) {
         i -= 32;
         __m128i a = _mm_loadu_si128((const __m128i*)(s + i)), b = _mm_loadu_si128((const __m128i*)(s + i + 16));
         _mm_storeu_si128((__m128i*)(d + i + 16), b); _mm_storeu_si128((__m128i*)(d + i), a);
     }
-    while (i--) d[i] = s[i];
+    if (i >= 16) { i -= 16; __m128i a = _mm_loadu_si128((const __m128i*)(s + i)); _mm_storeu_si128((__m128i*)(d + i), a); }
+    if (i & 8) { i -= 8; *(unsigned __int64*)(d + i) = *(const unsigned __int64*)(s + i); }
+    if (i & 4) { i -= 4; *(DWORD*)(d + i) = *(const DWORD*)(s + i); }
+    if (i & 2) { i -= 2; *(WORD*)(d + i) = *(const WORD*)(s + i); }
+    if (i & 1) d[0] = s[0];
     return dst;
 }
 static void* __cdecl fastMemset(void* dst, int c, size_t n) {

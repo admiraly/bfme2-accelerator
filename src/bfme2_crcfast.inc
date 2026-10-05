@@ -5,7 +5,7 @@ typedef DWORD (__cdecl* tBfme2Crc)(const BYTE*, DWORD, DWORD);
 static tBfme2Crc o_bfme2Crc = NULL;
 static volatile LONG g_bfme2CrcOff = 0;
 static __declspec(thread) unsigned g_bfme2CrcCalls = 0;
-static DWORD __cdecl hkBfme2Crc(const BYTE* p, DWORD n, DWORD seed) {
+static DWORD __cdecl hkBfme2CrcChecked(const BYTE* p, DWORD n, DWORD seed) {
     if (g_bfme2CrcOff) return o_bfme2Crc(p, n, seed);
     if (!p || !n) return seed;
     DWORD value = bfme2PacketCrc(p, n, seed);
@@ -19,6 +19,63 @@ static DWORD __cdecl hkBfme2Crc(const BYTE* p, DWORD n, DWORD seed) {
         }
     }
     return value;
+}
+// Tiny hashes avoid C setup and TLS proof overhead. Only integer volatile
+// registers are changed; ESI is saved and restored, and XMM/x87 are untouched.
+static __declspec(naked) DWORD __cdecl hkBfme2Crc(const BYTE*, DWORD, DWORD) {
+    __asm { cmp g_bfme2CrcOff, 0 }
+    __asm { jne checked }
+    __asm { mov eax, [esp+12] }
+    __asm { mov edx, [esp+4] }
+    __asm { test edx, edx }
+    __asm { je done }
+    __asm { mov ecx, [esp+8] }
+    __asm { test ecx, ecx }
+    __asm { je done }
+    __asm { cmp ecx, 8 }
+    __asm { ja checked }
+    __asm { push esi }
+    __asm { movzx esi, byte ptr [edx+0] }
+    __asm { rol eax, 1 }
+    __asm { add eax, esi }
+    __asm { dec ecx }
+    __asm { je shortDone }
+    __asm { movzx esi, byte ptr [edx+1] }
+    __asm { rol eax, 1 }
+    __asm { add eax, esi }
+    __asm { dec ecx }
+    __asm { je shortDone }
+    __asm { movzx esi, byte ptr [edx+2] }
+    __asm { rol eax, 1 }
+    __asm { add eax, esi }
+    __asm { dec ecx }
+    __asm { je shortDone }
+    __asm { movzx esi, byte ptr [edx+3] }
+    __asm { rol eax, 1 }
+    __asm { add eax, esi }
+    __asm { dec ecx }
+    __asm { je shortDone }
+    __asm { movzx esi, byte ptr [edx+4] }
+    __asm { rol eax, 1 }
+    __asm { add eax, esi }
+    __asm { dec ecx }
+    __asm { je shortDone }
+    __asm { movzx esi, byte ptr [edx+5] }
+    __asm { rol eax, 1 }
+    __asm { add eax, esi }
+    __asm { dec ecx }
+    __asm { je shortDone }
+    __asm { movzx esi, byte ptr [edx+6] }
+    __asm { rol eax, 1 }
+    __asm { add eax, esi }
+    __asm { dec ecx }
+    __asm { je shortDone }
+    __asm { movzx esi, byte ptr [edx+7] }
+    __asm { rol eax, 1 }
+    __asm { add eax, esi }
+    __asm { shortDone: pop esi }
+    __asm { done: ret }
+    __asm { checked: jmp hkBfme2CrcChecked }
 }
 static void installBfme2CrcFast(BYTE* base) {
     if (!bfme2FeatureEnabled("BFME2_CRCFAST")) { logf("bfme2-crc: OFF (BFME2_CRCFAST=0 disables)."); return; }

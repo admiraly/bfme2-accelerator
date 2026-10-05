@@ -27,6 +27,22 @@ int main() {
             ++count;
         }
     }
+    // Stress the folded carry guard and full-wrap boundary with all byte values.
+    for (unsigned byte = 0; byte < 256; ++byte) {
+        memset(input, byte, sizeof(input));
+        for (unsigned shift = 0; shift < 32; ++shift) for (unsigned offset = 0; offset < 1024; ++offset) {
+            uint32_t seed = (0xffffffffu << shift) + offset;
+            if (reference(input, 8, seed) != bfme2PacketCrc(input, 8, seed)) return 1;
+            ++count;
+        }
+    }
+    for (unsigned i = 0; i < 1000000; ++i) {
+        unsigned n = (i & 1) ? 8 : 16;
+        for (unsigned j = 0; j < n; ++j) input[j] = (unsigned char)random32();
+        uint32_t seed = random32();
+        if (reference(input, n, seed) != bfme2PacketCrc(input, n, seed)) return 1;
+        ++count;
+    }
     if (bfme2PacketCrc(NULL, 0xffffffffu, 0x12345678) != 0x12345678) return 1;
     printf("BFME II rotate/add hash: %u independent oracle cases passed\n", count);
     return 0;
