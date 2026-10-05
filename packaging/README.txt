@@ -1,41 +1,41 @@
-BFME2 Accelerator
-=================
+BFME2 Accelerator - experimental development build
+===================================================
 
-Two to three times the frame rate in big battles. Same graphics, same everything.
-
-The engine was written in 2006 for a single CPU core, and it still runs that way: one thread
-doing all the work while the rest of your processor sits idle. This moves the Direct3D work
-to a second core, replaces the engine's slowest routines with modern ones that produce
-identical results, and evens out the logic step that causes the stutter in large battles.
-
-It does not write to your game folder or modify game.dat, so mod launchers and their
-checksums still pass.
-
+This fork adds verified BFME II 1.06 bindings and offline tests. There is no
+measured whole-game FPS claim for this development build. Function benchmark
+ratios are documented in docs/bfme2-optimization.md in the repository.
 
 Running it
 ----------
-1. Keep the two files together in one folder - anywhere you like:
-      bfme2_accel_loader.exe   and   bfme2_accel.dll
-2. Run bfme2_accel_loader.exe
-3. Click the game you want.
+Keep bfme2_accel_loader.exe and bfme2_accel.dll together in a folder.
+Run the loader and select the game. Unavailable games can be configured through
+Paths. Read bfme2_accel.log next to the DLL for recognition and installed hooks.
+The packaged DLL is the production build, with diagnostic telemetry omitted.
 
-That's it. The window disappears, the game starts, and the loader closes itself when you quit.
+Experimental BFME II vanilla 1.06 options
+----------------------------------------
+From a Command Prompt in this folder, enable features independently:
 
-A game it cannot find is greyed out - click it and point at its .exe. Paths are kept in
-bfme2_accel.ini next to the loader, and the "Paths..." button lets you edit them.
+  set BFME2_AUDIOINDEX=1
+  set BFME2_RLSORT=1
+  set BFME2_EQUIVFAST=1
+  bfme2_accel_loader.exe
 
+These BFME II engine features are OFF unless explicitly opted in. They require
+recognized game code and matching byte guards. Leave a variable unset or set
+it to 0 to keep that feature off. Test one feature at a time before combining.
+AOTR_AUDIOLIMIT=0 also disables audio indexing.
 
-If something is wrong
----------------------
-Antivirus: the loader injects a DLL, which looks like malware to Defender. If it says the DLL
-is missing when you can see it, that is what happened - add the folder to your exclusions.
+Audio indexing reduces repeated request-list traversal. Render sorting avoids
+reference-count churn while preserving stock record ordering. Template
+equivalence has mixed benchmark results: override chains improved, but the
+no-override case was slightly slower. Its usefulness needs an actual battle
+profile. All three retain stock comparisons and disable on detected mismatches.
 
-Otherwise read bfme2_accel.log next to the DLL. The first lines say what it recognised.
+The loader injects changes into the running process; it does not rewrite game.dat.
+Correctness tests do not establish battle performance, graphical/audio behavior,
+save/replay compatibility, multiplayer determinism or long-session stability.
+Those in-game checks remain outstanding. This is a testing build, not a release.
 
-
-Known issues
-------------
-- The game crashes when you quit to desktop. That is a stock 2.02 bug, not this - it does it
-  without the accelerator too.
-- BFME2 support is new and untested.
-- Multiplayer is untested.
+Implementation and evidence:
+https://github.com/admiraly/bfme2-accelerator/pull/1

@@ -76,6 +76,83 @@ benchmark must measure both their cost and the saved traversal work.
 This is an experimental binding, not a measured speedup. Validate battle audio,
 long sessions, loading/saving, replays and multiplayer before changing defaults.
 
+## Experimental native BFME II optimizations
+
+Two further bindings are available independently of the global engine-hook flag:
+
+```bat
+set BFME2_EQUIVFAST=1
+set BFME2_RLSORT=1
+bfme2_accel_loader.exe
+```
+
+Both are off by default and restricted to the recognized vanilla 1.06 build.
+The equivalence binding guards the complete 335-byte routine at VA `0x0073BB04`
+and its 14-byte final-override getter. It answers null, identity and empty-list
+cases directly; populated lists stay stock. It reads current original-template
+list bounds and override chains on every call, retaining no cached addresses or
+answers. The first 20,000 fast answers per thread and then one in 64 are checked
+against stock; a difference returns stock and disables the feature globally.
+
+The sort binding hooks only VA `0x00574870`. Its byte guards cover the complete
+helper region `0x0057330A..0x005748B2` and 89-byte median helper at `0x008C6F77`.
+It uses the existing accelerator algorithm with BFME II's two verified mesh
+comparators and heap fallback. Other comparators and lists over 8,192 records
+stay stock. Record moves preserve all 32 bytes without reference-count updates.
+The first 32 eligible sorts per thread and then one in 256 are compared with
+stock order; a difference restores stock order and disables the replacement.
+Donor push, erase and flush hooks are not enabled by this binding.
+
+Windows CI maps the pinned game image in a suspended test child. It starts no
+game entry point, constructors, gameplay or graphics. The tests execute the
+original equivalence, sort and helper machine code; for populated equivalence
+checks only the required `_strnicmp` import is resolved to the pinned CRT.
+
+Validation includes 2,112,500 equivalence cases with overrides, populated lists,
+nulls and storage reuse; 3,240 sorting cases comparing bytes, comparator sequences
+and final reference counts; forced heap fallback; and rejection of 349 equivalence
+and 5,634 sort guard mutations. Tests also exercise real entry detours and copied
+prologues, opt-out, guard/allocation/write failures and deliberate wrong-oracle
+mismatch fallback. Thread suspension in this isolated child test is a no-op;
+in-game concurrent patch installation remains unvalidated.
+
+Microbenchmarks on commit `a98e88eb5816c62f4bd1150bea62f1ddefd6ed7f`:
+
+| Workload | Stock | Full hook | Stock / hook |
+| --- | --- | --- | --- |
+| Empty template lists, no overrides | 3.37 ns | 3.48 ns | 0.97x |
+| Empty template lists, 4 overrides | 8.31 ns | 5.62 ns | 1.48x |
+| Empty template lists, 8 overrides | 10.12 ns | 7.57 ns | 1.34x |
+| Sort 64 mesh records | 12.33 us | 0.43 us | 28.41x |
+| Sort 256 mesh records | 49.38 us | 1.70 us | 28.99x |
+| Sort 1,024 mesh records | 256.76 us | 8.48 us | 30.27x |
+
+Sorting timings include restoring the input copy each iteration and the hook's
+sampled stock-order checks. Data uses fake meshes with valid measured field
+layouts and reference counts. Best-of-five alternating measurement order on a
+shared Actions runner does not represent an actual battle. Equivalence is not a
+uniform win: its no-override case was slightly slower, so it must be evaluated
+with the actual workload before enabling. None of these ratios is an FPS claim.
+
+## Remaining engine candidates
+
+Object-filter caching needs the target routine and static/dynamic split, plus
+verified invalidation for filter and template reloads. Its donor addresses and
+frame-reset heuristic are insufficient to bind it to BFME II.
+
+The target mutex lock has a reconstruction lead, but unlock is marked
+present-unmatched in the reference, and replacing kernel mutexes requires proofs
+for named handles, recursion, timeouts, abandonment, ownership and destruction.
+The existing donor adoption mechanism is not grounds to enable target locks.
+
+Skeleton-transform source and layout leads exist, but safe worker offload also
+requires animation mutation ownership, render-pass dependency order, cleanup,
+floating-point state and device-reset interactions. A synthetic sort oracle
+cannot establish these rendering and concurrency properties.
+
+These features remain disabled. The next larger port should follow a battle
+profile, save/replay checks and two-client multiplayer validation.
+
 ## Further performance changes
 
 Case-insensitive ASCII comparisons now process 16 bytes with SSE2. The first
@@ -115,8 +192,8 @@ are needed; use the production DLL for battle performance measurements.
    audit additional mutations and audio manager lifetime paths.
 2. Profile a reproducible BFME II battle with portable features enabled and
    disabled. Choose the next feature from the measured remaining costs.
-3. Port sorting, equivalence caching and locks independently where evidence
-   supports them. Audit mutation and cleanup paths as well as steady state.
+3. Validate the native sort and equivalence bindings in-game. Port filter caches
+   and locks only after their invalidation and lifetime evidence is complete.
 4. Investigate pose workers and logic spreading after their dependency maps
    are complete. Preserve floating-point state, operation order and object
    lifetime; validate rendering interactions.

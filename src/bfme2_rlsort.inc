@@ -8,7 +8,8 @@ static __declspec(thread) unsigned g_bfme2RlCalls = 0;
 static void __cdecl hkBfme2RlSort(RlEl* begin, RlEl* end, tRlPred pred) {
     size_t n = end - begin;
     if (!n) return;
-    if (g_bfme2RlOff || n > 8192) { o_bfme2RlSort(begin, end, pred); return; }
+    if (g_bfme2RlOff || n > 8192 ||
+        ((DWORD)(ULONG_PTR)pred != kRlLessModel && (DWORD)(ULONG_PTR)pred != kRlLessModelInst)) { o_bfme2RlSort(begin, end, pred); return; }
     bool check = g_bfme2RlProof || !(++g_bfme2RlCalls & 255);
     RlEl* stock = NULL;
     if (check) {

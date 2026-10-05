@@ -5,8 +5,24 @@
 #include <vector>
 typedef BYTE (__fastcall* tIsEquiv)(void*, void*, void*);
 static void logf(const char*, ...) {}
-static BYTE* makeTrampoline(BYTE*, int) { return NULL; }
-static BOOL patchJmp(BYTE*, void*, int) { return FALSE; }
+static bool failAllocation = false, failPatch = false;
+static BYTE* makeTrampoline(BYTE* target, int stolen) {
+    if (failAllocation) return NULL;
+    BYTE* t = (BYTE*)VirtualAlloc(NULL, 64, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+    if (!t) return NULL;
+    memcpy(t, target, stolen); t[stolen] = 0xE9;
+    *(DWORD*)(t + stolen + 1) = (DWORD)(ULONG_PTR)(target + stolen) - (DWORD)(ULONG_PTR)(t + stolen + 5);
+    FlushInstructionCache(GetCurrentProcess(), t, stolen + 5); return t;
+}
+static BOOL patchJmp(BYTE* target, void* destination, int stolen) {
+    if (failPatch) return FALSE;
+    DWORD protection;
+    if (!VirtualProtect(target, stolen, PAGE_EXECUTE_READWRITE, &protection)) return FALSE;
+    target[0] = 0xE9; *(DWORD*)(target + 1) = (DWORD)(ULONG_PTR)destination - (DWORD)(ULONG_PTR)(target + 5);
+    for (int i = 5; i < stolen; ++i) target[i] = 0x90;
+    DWORD ignored; VirtualProtect(target, stolen, protection, &ignored);
+    FlushInstructionCache(GetCurrentProcess(), target, stolen); return TRUE;
+}
 static void suspendOthers(HANDLE*, int*, int) {}
 static void resumeAll(HANDLE*, int) {}
 #include "bfme2_equivfast.inc"
@@ -77,6 +93,7 @@ static double timing(tIsEquiv function, void* a, void* b) {
     QueryPerformanceCounter(&end);
     return double(end.QuadPart - begin.QuadPart) * 1e9 / frequency.QuadPart / 2000000;
 }
+static int installationTests();
 static int sortTests();
 static int child(const char* crtPath) {
     BYTE* image = (BYTE*)0x400000;
@@ -238,6 +255,54 @@ static int sortTests() {
         }
         printf("render sort %u records (includes input copy): stock %.2f ns, full hook %.2f ns, stock/hook %.2fx\n", n, stockBest, hookBest, stockBest / hookBest);
     }
+    return installationTests();
+}
+static BYTE __fastcall wrongEquivalence(void*, void*, void*) { return 1; }
+static void __cdecl wrongSort(RlEl* begin, RlEl*, tRlPred) { begin->w[1] ^= 0x55; }
+static int installationTests() {
+    // Before touching entry points, exercise opt-out and failure paths.
+    SetEnvironmentVariableA("BFME2_EQUIVFAST", NULL); SetEnvironmentVariableA("BFME2_RLSORT", NULL);
+    installBfme2EquivFast((BYTE*)0x400000); installBfme2RlSort((BYTE*)0x400000);
+    if (!bfme2EquivProfileMatches((BYTE*)0x400000) || !bfme2RlProfileMatches((BYTE*)0x400000)) return 1;
+    SetEnvironmentVariableA("BFME2_EQUIVFAST", "1"); SetEnvironmentVariableA("BFME2_RLSORT", "1");
+    for (unsigned failure = 0; failure < 3; ++failure) {
+        failAllocation = failure == 0; failPatch = failure == 1;
+        if (failure == 2) { *(BYTE*)0x73BB04 ^= 1; *(BYTE*)0x574870 ^= 1; }
+        installBfme2EquivFast((BYTE*)0x400000); installBfme2RlSort((BYTE*)0x400000);
+        if (failure == 2) { *(BYTE*)0x73BB04 ^= 1; *(BYTE*)0x574870 ^= 1; }
+        if (!bfme2EquivProfileMatches((BYTE*)0x400000) || !bfme2RlProfileMatches((BYTE*)0x400000)) return 1;
+    }
+    failAllocation = failPatch = false;
+    installBfme2EquivFast((BYTE*)0x400000); installBfme2RlSort((BYTE*)0x400000);
+    if (!o_bfme2Equiv || !o_bfme2RlSort || *(BYTE*)0x73BB04 != 0xE9 || *(BYTE*)0x574870 != 0xE9) return 1;
+    tIsEquiv entry = (tIsEquiv)0x73BB04;
+    FakeTemplate a = {}, b = {};
+    if (entry(a.data, NULL, b.data) || !entry(a.data, NULL, a.data) || entry(NULL, NULL, NULL)) return 1;
+    word(a, 4, (DWORD)(ULONG_PTR)b.data);
+    if (!entry(a.data, NULL, b.data)) return 1;
+    word(a, 4, 0);
+    // The original entry now detours into the hook; the saved function runs
+    // through its copied prologue and relative jump back into original code.
+    FakeMesh meshes[32] = {};
+    std::vector<RlEl> data(32);
+    for (unsigned i = 0; i < 32; ++i) { meshes[i].refs = 1000000; meshes[i].model = 31 - i; data[i].w[0] = (DWORD)(ULONG_PTR)&meshes[i]; data[i].w[1] = i; }
+    auto stock = data;
+    tRlPred pred = (tRlPred)(ULONG_PTR)kRlLessModel;
+    o_bfme2RlSort(stock.data(), stock.data() + 32, pred);
+    ((tBfme2RlSort)0x574870)(data.data(), data.data() + 32, pred);
+    if (memcmp(stock.data(), data.data(), 32 * sizeof(RlEl))) return 1;
+    // Deliberately wrong stock oracles exercise disable and answer restoration.
+    tIsEquiv originalEq = o_bfme2Equiv;
+    o_bfme2Equiv = wrongEquivalence; g_bfme2EquivCalls = 0;
+    if (entry(a.data, NULL, b.data) != 1 || !g_bfme2EquivOff) return 1;
+    o_bfme2Equiv = originalEq; g_bfme2EquivOff = 0;
+    tBfme2RlSort originalSort = o_bfme2RlSort;
+    o_bfme2RlSort = wrongSort; g_bfme2RlProof = 1;
+    RlEl element = {}; element.w[0] = (DWORD)(ULONG_PTR)&meshes[0];
+    ((tBfme2RlSort)0x574870)(&element, &element + 1, pred);
+    if (element.w[1] != 0x55 || !g_bfme2RlOff) return 1;
+    o_bfme2RlSort = originalSort; g_bfme2RlOff = 0;
+    puts("BFME II native detours: opt-out, guard/allocation/write failures, trampoline calls and mismatch fallback passed");
     return 0;
 }
 int main(int argc, char** argv) {

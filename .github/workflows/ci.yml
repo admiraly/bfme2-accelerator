@@ -102,17 +102,17 @@ jobs:
           name: crt-case-equivalence-and-timings
           path: crt-case-results.txt
           retention-days: 14
-      - name: Compare template equivalence with original BFME II machine code
+      - name: Compare native BFME II equivalence, sorting and detour behavior
         shell: pwsh
         working-directory: src
         run: |
           $game = (Resolve-Path ../baseline-reference/baselines/bfme2/workshop-vanilla-1.06/files/game.dat).Path
           $crt = (Resolve-Path ../crt-reference/build/toolchains/vs2003/msvcr71.dll).Path
           & .\bfme2_equiv_test.exe $game $crt | Tee-Object ../bfme2-equiv-results.txt
-          if ($LASTEXITCODE -ne 0) { throw "Native template equivalence failed" }
+          if ($LASTEXITCODE -ne 0) { throw "Native BFME II optimization checks failed" }
       - uses: actions/upload-artifact@v4
         with:
-          name: bfme2-template-equivalence-and-timings
+          name: bfme2-native-optimization-checks
           path: bfme2-equiv-results.txt
           retention-days: 14
       - name: Package development build
