@@ -13,6 +13,8 @@ static BYTE* makeTrampoline(BYTE*, int) { return NULL; }
 static BOOL patchJmp(BYTE*, void*, int) { return FALSE; }
 static void suspendOthers(HANDLE*, int* n, int) { *n = 0; }
 static void resumeAll(HANDLE*, int) {}
+// The model never installs live hooks, but the included installer must compile.
+static const char* aotrPath(char* out, const char* name) { lstrcpynA(out, name, MAX_PATH); return out; }
 static double g_tscPerQpc = 1.0; static LARGE_INTEGER g_pqpf;
 #define SUB_N 12
 static volatile LONG64 g_subT[SUB_N]; static DWORD g_subGlob[SUB_N];
