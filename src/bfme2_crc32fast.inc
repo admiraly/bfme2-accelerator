@@ -6,7 +6,7 @@ static uint32_t g_bfme2Crc32Table[8][256];
 static tBfme2Crc32 o_bfme2Crc32 = NULL;
 static volatile LONG g_bfme2Crc32Off = 0;
 static __declspec(thread) unsigned g_bfme2Crc32Calls = 0;
-static DWORD __cdecl hkBfme2Crc32(const BYTE* p, DWORD n, DWORD seed) {
+static DWORD __cdecl hkBfme2Crc32Checked(const BYTE* p, DWORD n, DWORD seed) {
     if (g_bfme2Crc32Off) return o_bfme2Crc32(p, n, seed);
     if (!n) return seed;
     if (n <= 8) return bfme2Crc32(p, n, seed, g_bfme2Crc32Table);
@@ -21,6 +21,32 @@ static DWORD __cdecl hkBfme2Crc32(const BYTE* p, DWORD n, DWORD seed) {
         }
     }
     return value;
+}
+// Zero to three bytes use integer registers only and avoid C/TLS setup.
+// NULL with nonzero length still faults as in the native routine.
+static __declspec(naked) DWORD __cdecl hkBfme2Crc32(const BYTE*, DWORD, DWORD) {
+    __asm { cmp g_bfme2Crc32Off, 0 }
+    __asm { jne checked }
+    __asm { mov ecx, [esp+8] }
+    __asm { cmp ecx, 3 }
+    __asm { ja checked }
+    __asm { mov eax, [esp+12] }
+    __asm { test ecx, ecx }
+    __asm { je done }
+    __asm { push esi }
+    __asm { mov esi, [esp+8] }
+    __asm { not eax }
+    __asm { tinyLoop: movzx edx, byte ptr [esi] }
+    __asm { xor dl, al }
+    __asm { shr eax, 8 }
+    __asm { xor eax, dword ptr [g_bfme2Crc32Table+edx*4] }
+    __asm { inc esi }
+    __asm { dec ecx }
+    __asm { jne tinyLoop }
+    __asm { not eax }
+    __asm { pop esi }
+    __asm { done: ret }
+    __asm { checked: jmp hkBfme2Crc32Checked }
 }
 static void installBfme2Crc32Fast(BYTE* base) {
     if (!bfme2FeatureEnabled("BFME2_CRC32FAST")) { logf("bfme2-crc32: OFF (BFME2_CRC32FAST=0 disables)."); return; }

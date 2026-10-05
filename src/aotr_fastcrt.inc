@@ -48,6 +48,7 @@ static tCrtCpy   o_crtMemcpy = NULL, o_crtMemmove = NULL;
 static tCrtSet   o_crtMemset = NULL;
 static tCrtLen   o_crtStrlen = NULL;
 static bool g_crtErms = false;
+static bool g_crtCloseRep = false;
 static tCrtSCmp  o_crtStricmp = NULL;
 static tCrtSNCmp o_crtStrnicmp = NULL;
 // VS2003's exported locale handles are updated by setlocale. Index 2 is
@@ -129,7 +130,7 @@ static void* __cdecl fastMemmove(void* dst, const void* src, size_t n) {
     }
     if (d < s) {
         size_t distance = (size_t)(s - d);
-        if (g_crtErms && ((n >= 1024 && distance >= 64) ||
+        if (g_crtErms && ((n >= 1024 && (distance >= 64 || g_crtCloseRep)) ||
                          (n > 32 && n <= 256 && distance >= 8))) {
             __movsb(d, s, n); return dst;
         }
@@ -159,6 +160,33 @@ static void* __cdecl fastMemmove(void* dst, const void* src, size_t n) {
     if (i & 2) { i -= 2; *(WORD*)(d + i) = *(const WORD*)(s + i); }
     if (i & 1) d[0] = s[0];
     return dst;
+}
+// ERMS performance on close overlaps varies sharply across processors.
+// Make one bounded startup choice on scratch bytes, never game state. Compare
+// minimum QPC times from three alternating trials; require a 10% REP advantage.
+// The integer-only probe preserves floating-point state and uses no allocation.
+static void crtChooseCloseCopy() {
+    g_crtCloseRep = false;
+    if (!g_crtErms) return;
+    BYTE scratch[4160];
+    for (unsigned i = 0; i < sizeof(scratch); ++i) scratch[i] = (BYTE)i;
+    LONGLONG best[2] = {0x7FFFFFFFFFFFFFFFLL, 0x7FFFFFFFFFFFFFFFLL};
+    tCrtCpy volatile vectorCopy = fastMemmove;
+    volatile BYTE sink = 0;
+    for (unsigned trial = 0; trial < 3; ++trial) for (unsigned order = 0; order < 2; ++order) {
+        unsigned mode = (trial + order) & 1;
+        LARGE_INTEGER begin, end;
+        if (!QueryPerformanceCounter(&begin)) return;
+        for (unsigned i = 0; i < 128; ++i) {
+            if (mode) __movsb(scratch, scratch + 1, 4096);
+            else vectorCopy(scratch, scratch + 1, 4096);
+            sink ^= scratch[i & 63];
+        }
+        if (!QueryPerformanceCounter(&end) || end.QuadPart <= begin.QuadPart) return;
+        LONGLONG elapsed = end.QuadPart - begin.QuadPart;
+        if (elapsed < best[mode]) best[mode] = elapsed;
+    }
+    g_crtCloseRep = best[1] < best[0] - best[0] / 10;
 }
 static void* __cdecl fastMemset(void* dst, int c, size_t n) {
     BYTE* d = (BYTE*)dst; BYTE v = (BYTE)c;
@@ -388,6 +416,7 @@ static bool crtPrepare(HMODULE crt) {               // resolve the originals (al
     if (!crt) return false;
     int cpu[4]; __cpuid(cpu, 0);
     if (cpu[0] >= 7) { __cpuidex(cpu, 7, 0); g_crtErms = (cpu[1] & (1 << 9)) != 0; }
+    crtChooseCloseCopy();
     const DWORD* handles = (const DWORD*)GetProcAddress(crt, "__lc_handle");
     g_crtCTypeHandle = handles ? handles + 2 : NULL;
     o_crtFloor    = (tCrtD1)GetProcAddress(crt, "floor");

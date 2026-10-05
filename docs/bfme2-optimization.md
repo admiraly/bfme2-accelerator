@@ -508,9 +508,14 @@ checksum and are not substituted.
 Complete memmove benchmarks identified an important exception to the SSE2 path:
 ERMS REP MOVSB wins for some wider overlaps. CPUID dispatch retains it for forward
 moves with distance >=64 bytes and length >=1024, and for 33..256-byte moves with
-distance >=8. Other forward overlaps use the ordered vector path. Timings on the
-shared runner are useful for selecting these paths but are not a guarantee of
-optimal thresholds on every processor.
+distance >=8. For larger close overlaps, a bounded startup calibration on a
+scratch buffer compares three alternating 128-copy trials of REP versus the
+ordered vector path. The minimum measured REP time must win by at least 10% to
+select it. This uses integer QPC timings, no allocation and no game data. Both
+choices are checked against the native memmove, including protected pages. It
+addresses the observed runner-to-runner reversal: a close 4 KiB move took about
+1132 ns with REP versus 85 ns with vectors on one runner, but 72 ns versus 105 ns
+on another. It is a startup heuristic, not universally optimal dispatch.
 
 The observed game `_statusfp` import call is at `0x00440EAF`, immediately after
 `_fpreset` at `0x00440EA9`; the following `_controlfp` operation uses mask
@@ -520,3 +525,10 @@ status-flag differences as a desync mechanism. Indirect consumers and live game
 behavior remain outside this static audit. Frame-admission, logic rate, retries
 and the structurally mapped community delay patch remain unchanged because
 end-to-end timing compatibility is not established by function-level tests.
+
+The first native CRC32 run passed 120,417 cases. Complete detour timings on
+that runner were 58.02 -> 13.06 ns at 24 bytes, 157.41 -> 34.70 ns at 64,
+1185.78 -> 303.87 ns at 480 and 2530.86 -> 662.50 ns at 1024 (3.8--4.5x).
+The original C entry regressed on zero/one-byte inputs; an integer-only tiny
+entry now handles lengths zero through three. These are isolated CPU timings,
+not measured game FPS, latency or desync fixes.

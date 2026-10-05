@@ -42,6 +42,9 @@ int main(int argc, char** argv) {
             if (result != actual.data() + dst || memcmp(actual.data(), expected.data(), 1100)) return failed(n, shift, direction);
             ++cases;
         }
+    bool selected = g_crtCloseRep;
+    for (unsigned mode = 0; mode < 2; ++mode) {
+    g_crtCloseRep = mode != 0;
     for (unsigned n : {2047u, 2048u, 4095u, 4096u, 16384u, 65536u})
         for (unsigned shift : {1u, 8u, 15u, 16u, 17u, 31u, 32u, 63u, 64u, 127u, 256u, 1023u, 4096u})
             for (unsigned direction = 0; direction < 2; ++direction) {
@@ -65,6 +68,9 @@ int main(int argc, char** argv) {
         }
     fastMemmove(pages + 4096, pages + 4096, 0);
     VirtualFree(pages, 0, MEM_RELEASE);
+    }
+    g_crtCloseRep = selected;
+    printf("Copy dispatch: ERMS=%u calibrated-close-REP=%u; both choices verified\n", g_crtErms, selected);
     printf("Overlapping memmove: %u native cases, complete-buffer/canary, protected-page and return-pointer checks passed\n", cases);
     tCrtCpy functions[] = {o_crtMemmove, previousMemmove, fastMemmove};
     LARGE_INTEGER frequency; QueryPerformanceFrequency(&frequency);
