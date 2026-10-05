@@ -3,7 +3,7 @@
 #include <cstdio>
 #include <cstring>
 #include <vector>
-#include <locale.h>
+#include "crt_locale_test.h"
 typedef BYTE (__fastcall* tIsEquiv)(void*, void*, void*);
 static void logf(const char*, ...) {}
 static bool failAllocation = false, failPatch = false;
@@ -255,14 +255,13 @@ static int stringTests() {
         if (o_bfme2StringNoCase(&ha, NULL, &hb) != hkBfme2StringNoCase(&ha, NULL, &hb)) return 1;
         ++memberCases;
     }
-    typedef char* (__cdecl* SetLocale)(int, const char*);
-    SetLocale setLocale = (SetLocale)GetProcAddress(GetModuleHandleA("msvcr71.dll"), "setlocale");
+    tCrtSetLocale setLocale = (tCrtSetLocale)GetProcAddress(GetModuleHandleA("msvcr71.dll"), "setlocale");
     if (!setLocale) return 2;
     unsigned localeCases = 0;
     BYTE* lpa = a + 4096; BYTE* lpb = b + 4096;
     *(WORD*)(lpa + 4) = *(WORD*)(lpb + 4) = 2;
-    for (const char* locale : {"English_United States.1252", "Turkish_Turkey.1254", "German_Germany.1252", "C"}) {
-        if (!setLocale(LC_CTYPE, locale)) continue;
+    for (const char* locale : {"English_United States.1252", "Turkish", "German_Germany.1252", "C"}) {
+        if (!crtTestLocale(setLocale, locale)) continue;
         for (unsigned x = 0; x < 256; ++x) for (unsigned y = 0; y < 256; ++y) {
             lpa[8] = (BYTE)x; lpb[8] = (BYTE)y; lpa[9] = 'I'; lpb[9] = 'i';
             for (unsigned shared = 0; shared < 2; ++shared) {

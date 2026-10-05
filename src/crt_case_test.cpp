@@ -3,7 +3,7 @@
 #include <cstdio>
 #include <cstring>
 #include <initializer_list>
-#include <locale.h>
+#include "crt_locale_test.h"
 static void logf(const char*, ...) {}
 #include "aotr_fastcrt.inc"
 #include "crt_case_baseline.h"
@@ -86,14 +86,13 @@ int main(int argc, char** argv) {
         if (x != y) ++failures;
         ++cases;
     }
-    typedef char* (__cdecl* SetLocale)(int, const char*);
     HMODULE crt = GetModuleHandleA("msvcr71.dll");
-    SetLocale setLocale = (SetLocale)GetProcAddress(crt, "setlocale");
+    tCrtSetLocale setLocale = (tCrtSetLocale)GetProcAddress(crt, "setlocale");
     if (!setLocale || !g_crtCTypeHandle) return 2;
     unsigned localeChecks = 0, nonCLocales = 0;
     // Exercise the CRT's actual locale state and restore C before timing.
-    for (const char* locale : {"English_United States.1252", "Turkish_Turkey.1254", "German_Germany.1252", "C"}) {
-        if (!setLocale(LC_CTYPE, locale)) { printf("Locale unavailable: %s\n", locale); continue; }
+    for (const char* locale : {"English_United States.1252", "Turkish", "German_Germany.1252", "C"}) {
+        if (!crtTestLocale(setLocale, locale)) { printf("Locale unavailable: %s\n", locale); continue; }
         if (strcmp(locale, "C") && crtAsciiLocale()) return 1;
         if (!strcmp(locale, "C") && !crtAsciiLocale()) return 1;
         if (strcmp(locale, "C")) ++nonCLocales;
@@ -103,7 +102,7 @@ int main(int argc, char** argv) {
             check(p, q, 2); ++localeChecks;
         }
     }
-    if (!nonCLocales || !setLocale(LC_CTYPE, "C")) return 2;
+    if (nonCLocales != 3 || !setLocale(LC_CTYPE, "C")) return 2;
     const volatile DWORD* handle = g_crtCTypeHandle; g_crtCTypeHandle = NULL;
     check("I", "i", 1); // Unknown CRT locale exports delegate to stock.
     g_crtCTypeHandle = handle;

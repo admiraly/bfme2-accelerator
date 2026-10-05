@@ -19,6 +19,7 @@ From a Command Prompt in this folder, enable features independently:
   set BFME2_AUDIOINDEX=1
   set BFME2_RLSORT=1
   set BFME2_EQUIVFAST=1
+  set BFME2_STRINGFAST=1
   bfme2_accel_loader.exe
 
 These BFME II engine features are OFF unless explicitly opted in. They require
@@ -30,7 +31,10 @@ Audio indexing reduces repeated request-list traversal. Render sorting avoids
 reference-count churn while preserving stock record ordering. Template
 equivalence has mixed benchmark results: override chains improved, but the
 no-override case was slightly slower. Its usefulness needs an actual battle
-profile. All three retain stock comparisons and disable on detected mismatches.
+profile. Native string comparison removes wrapper calls and reads current
+headers directly, with bounded SIMD comparison and original locale fallback.
+Non-C locales keep the original CRT comparison for ASCII bytes too.
+All four retain stock comparisons and disable on detected mismatches.
 
 The loader injects changes into the running process; it does not rewrite game.dat.
 Correctness tests do not establish battle performance, graphical/audio behavior,

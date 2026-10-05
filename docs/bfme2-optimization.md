@@ -159,7 +159,11 @@ profile, save/replay checks and two-client multiplayer validation.
 
 Case-insensitive ASCII comparisons now process 16 bytes with SSE2. The first
 mismatch, terminator or high-byte event is resolved in byte order. Non-ASCII
-comparisons retain the original CRT locale behavior; loads stay inside readable
+comparisons retain the original CRT behavior; non-C locales delegate the entire
+comparison, including ASCII bytes, to the original CRT. The exported VS2003
+`__lc_handle[LC_CTYPE]` value is read on each call, so live locale changes are
+observed without cached locale assumptions. A missing export also delegates
+these comparisons. Loads stay inside readable
 pages, and bounded comparisons do not load beyond their requested count. This
 uses the existing import replacement path and does not need engine addresses.
 
@@ -187,6 +191,80 @@ The production audio harness compares answers directly and checks that telemetry
 stays zero while proof comparisons complete. Use the diagnostic DLL when counters
 are needed; use the production DLL for battle performance measurements.
 
+## Experimental native string comparison
+
+`BFME2_STRINGFAST=1` binds `StringBase::compareNoCase` at VA `0x00406A00`
+for vanilla 1.06. It reads each current header, its unsigned 16-bit length at
+`+4`, and its bytes at `+8` directly, replacing two wrapper calls before the
+bounded CRT comparison. Null headers represent empty strings. There is no
+memoization, allocation or header mutation. The exact result is the bounded
+comparison result, or the signed length difference when that comparison is zero.
+The SIMD path applies only to the C locale; non-C locales and non-ASCII bytes
+use the original CRT locale path. Two objects sharing the same
+current header return equality without scanning that header; the sampled stock
+checks still apply. This identity check retains no pointer cache.
+
+The complete 42-byte entry and 44-byte bounded helper at `0x00405841` are guarded.
+The entry trampoline copies six complete instruction bytes. The recognized
+image hash, fixed image base and resolved original CRT comparison are required.
+Allocation, write or guard failure leaves the feature off. The first 20,000
+comparisons per thread and one in 64 thereafter compare against the original
+member routine; a difference retains the original return and disables the hook.
+This option is independent of the other experimental bindings.
+
+The first implementation, revision `09970a7d6b94fd9d9703cdaceff8ab8a8ac49fbb`,
+passed 4,645,728 exact bounded-helper comparisons and 500,025 native-header
+comparisons against the original machine code. The current oracle also injects
+shared headers, including non-ASCII data. Cases cover null headers,
+embedded terminators, non-ASCII bytes, storage reuse, all byte pairs at every
+SIMD lane, protected-page boundaries and the full 16-bit length range.
+Best-of-five equal-ASCII member timings, with sampled stock checks included:
+
+| Length | Untouched member | SIMD import path | Direct member hook | SIMD import / direct |
+| --- | --- | --- | --- | --- |
+| 8 | 33.66 ns | 22.68 ns | 20.50 ns | 1.11x |
+| 16 | 70.28 ns | 11.40 ns | 6.73 ns | 1.69x |
+| 32 | 146.14 ns | 13.17 ns | 9.29 ns | 1.42x |
+| 64 | 294.73 ns | 16.47 ns | 13.60 ns | 1.21x |
+| 128 | 604.78 ns | 23.74 ns | 22.62 ns | 1.05x |
+
+The subsequent short-span change uses 8- and 4-byte SSE2 loads when fewer than
+16 bytes remain. Each load remains within the requested count and both pages;
+upper unused lanes are masked out. The full-width branch stays ahead of narrow
+handling, and a scalar first-byte check resolves short mismatches before narrow
+loads. A shared event resolver keeps the vector hot path compact. A test-only
+snapshot benchmarks the previous 16-byte-only implementation alongside the new
+one, including early mismatches.
+
+On revision `9851122e6c319e5cfbcc4e10a35121ff58994dbe`, a comparison
+benchmark, before the additional per-call locale gate, produced the following
+representative results against the previous 16-byte-only SIMD implementation:
+
+| Bounded span | Previous | New | Previous / new |
+| --- | --- | --- | --- |
+| Equal 4 bytes | 10.47 ns | 5.27 ns | 1.99x |
+| Equal 8 bytes | 18.64 ns | 5.09 ns | 3.66x |
+| Equal 12 bytes | 29.12 ns | 9.19 ns | 3.17x |
+| Equal 24 bytes | 21.65 ns | 7.66 ns | 2.83x |
+
+Early-mismatch timings were 1.02–1.06x faster; equal full-width spans ranged
+from 0.97–1.03x. Native direct-member comparisons were 1.10–1.55x faster than
+the current SIMD import path for equal 8–128-byte spans, and 1.34–1.53x faster
+for early mismatches. Shared-header comparisons were 4.21–7.96x faster than
+that import path. These include sampled stock checks. The single-range ASCII
+fold also measured 1.00–1.06x versus the previous vector fold in unbounded
+comparisons. Such small differences are sensitive to hosted-runner noise.
+These are function measurements, not battle or FPS gains. The final artifact
+also includes the per-call locale gate and live English, Turkish, German and C
+locale checks; its timings supersede these earlier measurements. Turkish tests
+try language-only and old/new country spellings for current Windows NLS data.
+
+Installed-entry tests exercise the real copied-prologue trampoline, null headers,
+allocation/write/guard failures, injected oracle mismatches and 20,000 populated
+list cases with both the string and equivalence detours active. The independent
+reference temporarily disables the string hook. These isolated native-code checks
+do not establish in-game threading, save/replay compatibility or battle FPS.
+
 ## Next implementation steps
 
 1. Validate the opt-in audio binding in a running game. Profile indexed and
@@ -194,7 +272,7 @@ are needed; use the production DLL for battle performance measurements.
    audit additional mutations and audio manager lifetime paths.
 2. Profile a reproducible BFME II battle with portable features enabled and
    disabled. Choose the next feature from the measured remaining costs.
-3. Validate the native sort and equivalence bindings in-game. Port filter caches
+3. Validate the native string, sort and equivalence bindings in-game. Port filter caches
    and locks only after their invalidation and lifetime evidence is complete.
 4. Investigate pose workers and logic spreading after their dependency maps
    are complete. Preserve floating-point state, operation order and object
