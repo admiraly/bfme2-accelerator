@@ -1,7 +1,7 @@
 # BFME II optimization track
 
 This fork is the implementation home for extending the accelerator to BFME II.
-Open-BFME-1 and Open-BFME-2 supply reference evidence; the six verified BFME II 1.06 bindings are enabled by default. Other
+Open-BFME-1 and Open-BFME-2 supply reference evidence; the seven verified BFME II 1.06 bindings are enabled by default. Other
 engine-specific hooks remain disabled until their target addresses, ABI and
 touched layouts are verified. Set the relevant `BFME2_*` variable to `0` to
 disable a verified binding; no environment setup is needed to enable it.
@@ -483,3 +483,40 @@ settings matched native floor/ceil in every case. There were 26,894 differences
 in exception-status side effects. Those are diagnostic findings, not a confirmed
 source of game desync; engine consumption of those flags needs further tracing.
 No floating-point mode is forcibly changed by this pass.
+
+
+## Default IEEE CRC32 and memory-copy dispatch
+
+The separate native IEEE CRC32 helper at `0x00A19AC0` is replaced by slicing-by-8
+and a slicing-by-4 tail. It preserves the original seed complement, polynomial
+`0xEDB88320`, final complement and exact range boundaries. Its entire 51-byte
+body and native 1024-byte table at `0x00DD5F38` must match before installation
+and again with threads suspended. A five-byte trampoline steals the four-byte
+argument load and one-byte PUSH only. Derived tables consume 8 KiB and are built
+once during installation; no per-call allocation occurs. `BFME2_CRC32FAST=0`
+disables it. Tiny hashes (<=8 bytes) bypass runtime proof; larger ones compare
+the first 20,000 calls per thread and one in 64 afterward. Mismatches return stock
+and disable the binding. Null is accepted only with length zero, as in native.
+
+Independent bit-wise oracle tests and the standard `123456789` check vector
+verify the polynomial. Native tests include arbitrary initial hashes, guarded
+pages, every code/table guard mutation, real detours, XMM/control preservation,
+write/allocation refusal and injected incorrect-oracle fallback. This is not the
+rotate/add packet hash; hardware CRC32C instructions would compute a different
+checksum and are not substituted.
+
+Complete memmove benchmarks identified an important exception to the SSE2 path:
+ERMS REP MOVSB wins for some wider overlaps. CPUID dispatch retains it for forward
+moves with distance >=64 bytes and length >=1024, and for 33..256-byte moves with
+distance >=8. Other forward overlaps use the ordered vector path. Timings on the
+shared runner are useful for selecting these paths but are not a guarantee of
+optimal thresholds on every processor.
+
+The observed game `_statusfp` import call is at `0x00440EAF`, immediately after
+`_fpreset` at `0x00440EA9`; the following `_controlfp` operation uses mask
+`0x30300`. No other direct calls to those three IAT slots were found in the
+pinned text. That path therefore does not establish the measured floor/ceil
+status-flag differences as a desync mechanism. Indirect consumers and live game
+behavior remain outside this static audit. Frame-admission, logic rate, retries
+and the structurally mapped community delay patch remain unchanged because
+end-to-end timing compatibility is not established by function-level tests.

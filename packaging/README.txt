@@ -15,7 +15,7 @@ The packaged DLL is the production build, with diagnostic telemetry omitted.
 Default BFME II vanilla 1.06 optimizations
 ----------------------------------------
 Launch bfme2_accel_loader.exe normally. Audio indexing, render sorting, template
-equivalence, native string comparisons packet processing and exact packet/RNG hashing are enabled by
+equivalence, native string comparisons packet processing and exact packet/RNG hashing and IEEE CRC32 are enabled by
 default for recognized vanilla 1.06 code with matching byte guards.
 
 For troubleshooting, each feature can still be disabled independently by setting
@@ -27,6 +27,7 @@ its environment variable to 0 before launching:
   set BFME2_STRINGFAST=0
   set BFME2_NETFAST=0
   set BFME2_CRCFAST=0
+  set BFME2_CRC32FAST=0
   bfme2_accel_loader.exe
 
 Unset variables enable the defaults. AOTR_AUDIOLIMIT=0 also disables indexing.

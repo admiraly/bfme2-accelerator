@@ -47,6 +47,7 @@ static tCrtCmp   o_crtMemcmp = NULL;
 static tCrtCpy   o_crtMemcpy = NULL, o_crtMemmove = NULL;
 static tCrtSet   o_crtMemset = NULL;
 static tCrtLen   o_crtStrlen = NULL;
+static bool g_crtErms = false;
 static tCrtSCmp  o_crtStricmp = NULL;
 static tCrtSNCmp o_crtStrnicmp = NULL;
 // VS2003's exported locale handles are updated by setlocale. Index 2 is
@@ -127,6 +128,11 @@ static void* __cdecl fastMemmove(void* dst, const void* src, size_t n) {
         return dst;
     }
     if (d < s) {
+        size_t distance = (size_t)(s - d);
+        if (g_crtErms && ((n >= 1024 && distance >= 64) ||
+                         (n > 32 && n <= 256 && distance >= 8))) {
+            __movsb(d, s, n); return dst;
+        }
         size_t i = 0;
         for (; n - i >= 32; i += 32) {
             __m128i a = _mm_loadu_si128((const __m128i*)(s + i)), b = _mm_loadu_si128((const __m128i*)(s + i + 16));
@@ -380,6 +386,8 @@ static bool crtSse41() {
 }
 static bool crtPrepare(HMODULE crt) {               // resolve the originals (also used by the test program)
     if (!crt) return false;
+    int cpu[4]; __cpuid(cpu, 0);
+    if (cpu[0] >= 7) { __cpuidex(cpu, 7, 0); g_crtErms = (cpu[1] & (1 << 9)) != 0; }
     const DWORD* handles = (const DWORD*)GetProcAddress(crt, "__lc_handle");
     g_crtCTypeHandle = handles ? handles + 2 : NULL;
     o_crtFloor    = (tCrtD1)GetProcAddress(crt, "floor");

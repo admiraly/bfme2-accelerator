@@ -1454,6 +1454,7 @@ static void __fastcall hkAnTree(void* ecx, void* edx) {
 #include "bfme2_stringfast.inc"
 #include "bfme2_packetfast.inc"
 #include "bfme2_crcfast.inc"
+#include "bfme2_crc32fast.inc"
 static void installPhaseTimers() {
     __try {
         static const BYTE kLogicPre[] = {0x55,0x56,0x57,0x68,0x50,0xE3,0xBF,0x00};
@@ -2791,6 +2792,7 @@ static DWORD WINAPI initThread(LPVOID) {
             installBfme2StringFast(base);
             installBfme2PacketFast(base);
             installBfme2CrcFast(base);
+            installBfme2Crc32Fast(base);
         }
 #ifndef AOTR_PROD
         CreateThread(NULL, 0, rtReport, NULL, 0, NULL);
