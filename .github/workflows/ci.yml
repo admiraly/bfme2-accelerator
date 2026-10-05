@@ -57,6 +57,15 @@ jobs:
           path: baseline-reference
           persist-credentials: false
           sparse-checkout: baselines/bfme2/workshop-vanilla-1.06
+      - name: Checkout pinned VS2003 CRT reference
+        uses: actions/checkout@v4
+        with:
+          repository: Open-BFME/Open-BFME-1
+          ref: c0409ae46dd306661857c38c5542dc2f4608e7dc
+          path: crt-reference
+          persist-credentials: false
+          sparse-checkout: build/toolchains/vs2003/msvcr71.dll
+          sparse-checkout-cone-mode: false
       - name: Build debug and production DLLs, launcher and offline tests
         shell: cmd
         run: tools\ci_build.cmd
@@ -77,6 +86,20 @@ jobs:
             & .\logicslicer_test.exe $seed
             if ($LASTEXITCODE -ne 0) { throw "Logic order failed: seed=$seed" }
           }
+      - name: Check CRT replacements and measure SIMD case comparisons
+        shell: pwsh
+        working-directory: src
+        run: |
+          $crt = (Resolve-Path ../crt-reference/build/toolchains/vs2003/msvcr71.dll).Path
+          & .\crt_test2.exe $crt --verify
+          if ($LASTEXITCODE -ne 0) { throw "CRT replacement equivalence failed" }
+          & .\crt_case_test.exe $crt | Tee-Object ../crt-case-results.txt
+          if ($LASTEXITCODE -ne 0) { throw "SIMD case comparisons failed" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: crt-case-equivalence-and-timings
+          path: crt-case-results.txt
+          retention-days: 14
       - name: Package development build
         shell: pwsh
         run: |
