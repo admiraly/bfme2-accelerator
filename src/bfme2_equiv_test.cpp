@@ -280,7 +280,7 @@ static int stringTests() {
             if (oldTime < iatBest) iatBest = oldTime;
             if (hookTime < hookBest) hookBest = hookTime;
         }
-        printf("StringBase %3u bytes: untouched %.2f ns, previous SIMD IAT %.2f ns, full hook %.2f ns, previous/hook %.2fx\n",
+        printf("StringBase %3u bytes: untouched %.2f ns, current SIMD IAT %.2f ns, full hook %.2f ns, previous/hook %.2fx\n",
                length, untouchedBest, iatBest, hookBest, iatBest / hookBest);
     }
     *(DWORD*)0xBBA690 = (DWORD)(ULONG_PTR)o_crtStrnicmp;
@@ -372,6 +372,7 @@ static int sortTests() {
 }
 static BYTE __fastcall wrongEquivalence(void*, void*, void*) { return 1; }
 static void __cdecl wrongSort(RlEl* begin, RlEl*, tRlPred) { begin->w[1] ^= 0x55; }
+static int __fastcall wrongString(void*, void*, void*) { return 123; }
 static int installationTests() {
     // Before touching entry points, exercise opt-out and failure paths.
     SetEnvironmentVariableA("BFME2_STRINGFAST", NULL);
@@ -390,12 +391,42 @@ static int installationTests() {
     failAllocation = failPatch = false;
     installBfme2EquivFast((BYTE*)0x400000); installBfme2RlSort((BYTE*)0x400000); installBfme2StringFast((BYTE*)0x400000);
     if (!o_bfme2Equiv || !o_bfme2RlSort || !o_bfme2StringNoCase || *(BYTE*)0x406A00 != 0xE9 || *(BYTE*)0x73BB04 != 0xE9 || *(BYTE*)0x574870 != 0xE9) return 1;
+    tBfme2StringNoCase stringEntry = (tBfme2StringNoCase)0x406A00;
+    FakeString sa = {}, sb = {};
+    sa.refs = sb.refs = 100; sa.capacity = sb.capacity = 31;
+    DWORD ha = (DWORD)(ULONG_PTR)&sa, hb = (DWORD)(ULONG_PTR)&sb;
+    for (const char* left : {"Gondor", "", "A", "\xC0X"}) for (const char* right : {"gOnDoR", "", "Abc", "\xE0x"}) {
+        strcpy_s(sa.data, left); strcpy_s(sb.data, right);
+        sa.length = (WORD)strlen(left); sb.length = (WORD)strlen(right);
+        if (stringEntry(&ha, NULL, &hb) != o_bfme2StringNoCase(&ha, NULL, &hb) || g_bfme2StringOff) return 1;
+    }
+    DWORD empty = 0;
+    if (stringEntry(&empty, NULL, &empty) || stringEntry(&empty, NULL, &hb) != -(int)sb.length) return 1;
     tIsEquiv entry = (tIsEquiv)0x73BB04;
     FakeTemplate a = {}, b = {};
     if (entry(a.data, NULL, b.data) || !entry(a.data, NULL, a.data) || entry(NULL, NULL, NULL)) return 1;
     word(a, 4, (DWORD)(ULONG_PTR)b.data);
     if (!entry(a.data, NULL, b.data)) return 1;
     word(a, 4, 0);
+    // Exercise populated equivalence fallback with both detours active. The
+    // reference call disables just the string replacement for an independent oracle.
+    DWORD namesA[] = {ha, hb}, namesB[] = {hb, ha};
+    for (unsigned trial = 0; trial < 20000; ++trial) {
+        sa.length = sb.length = 6;
+        memcpy(sa.data, trial & 1 ? "Gondor" : "Mordor", 7);
+        memcpy(sb.data, trial & 2 ? "gOnDoR" : "Rohan!", 7);
+        word(a, 0x64, ha); word(b, 0x64, hb);
+        for (unsigned offset : {0x330u,0x33Cu}) {
+            word(a, offset, (DWORD)(ULONG_PTR)namesA); word(b, offset, (DWORD)(ULONG_PTR)namesB);
+            word(a, offset + 4, (DWORD)(ULONG_PTR)(namesA + trial % 3));
+            word(b, offset + 4, (DWORD)(ULONG_PTR)(namesB + (trial / 3) % 3));
+        }
+        g_bfme2StringOff = 1;
+        BYTE expected = o_bfme2Equiv(a.data, NULL, b.data);
+        g_bfme2StringOff = 0;
+        if (entry(a.data, NULL, b.data) != expected || g_bfme2EquivOff || g_bfme2StringOff) return 1;
+    }
+    memset(a.data, 0, sizeof(a.data)); memset(b.data, 0, sizeof(b.data));
     // The original entry now detours into the hook; the saved function runs
     // through its copied prologue and relative jump back into original code.
     FakeMesh meshes[32] = {};
@@ -423,6 +454,10 @@ static int installationTests() {
     if (sequence != expectedSequence || g_bfme2RlProof != 1 || memcmp(data.data(), unknown.data(), 32 * sizeof(RlEl))) return 1;
     for (const auto& mesh : meshes) if (mesh.refs != 1000000) return 1;
     // Deliberately wrong stock oracles exercise disable and answer restoration.
+    tBfme2StringNoCase originalString = o_bfme2StringNoCase;
+    o_bfme2StringNoCase = wrongString; g_bfme2StringCalls = 0;
+    if (stringEntry(&ha, NULL, &hb) != 123 || !g_bfme2StringOff) return 1;
+    o_bfme2StringNoCase = originalString; g_bfme2StringOff = 0;
     tIsEquiv originalEq = o_bfme2Equiv;
     o_bfme2Equiv = wrongEquivalence; g_bfme2EquivCalls = 0;
     if (entry(a.data, NULL, b.data) != 1 || !g_bfme2EquivOff) return 1;
@@ -433,7 +468,7 @@ static int installationTests() {
     ((tBfme2RlSort)0x574870)(&element, &element + 1, pred);
     if (element.w[1] != 0x55 || !g_bfme2RlOff) return 1;
     o_bfme2RlSort = originalSort; g_bfme2RlOff = 0;
-    puts("BFME II native detours: opt-out, guard/allocation/write failures, trampoline calls, size/comparator limits and mismatch fallback passed");
+    puts("BFME II native detours: opt-out, guard/allocation/write failures, trampoline calls, 20,000 populated-list/string integration cases, size/comparator limits and all three mismatch fallbacks passed");
     return 0;
 }
 int main(int argc, char** argv) {

@@ -2,8 +2,10 @@
 #include <windows.h>
 #include <cstdio>
 #include <cstring>
+#include <initializer_list>
 static void logf(const char*, ...) {}
 #include "aotr_fastcrt.inc"
+#include "crt_case_baseline.h"
 static unsigned rng = 0x12345678;
 static unsigned random32() { rng ^= rng << 13; rng ^= rng >> 17; rng ^= rng << 5; return rng; }
 static int failures = 0;
@@ -36,6 +38,14 @@ static double measure(tCrtSCmp fn, const char* a, const char* b) {
     for (int i = 0; i < iterations; ++i) sink = fn(a, b);
     QueryPerformanceCounter(&end);
     return double(end.QuadPart - start.QuadPart) * 1e9 / frequency.QuadPart / iterations;
+}
+static double measureBounded(tCrtSNCmp fn, const char* a, const char* b, size_t n) {
+    LARGE_INTEGER frequency, start, end; QueryPerformanceFrequency(&frequency);
+    for (int i = 0; i < 10000; ++i) sink = fn(a, b, n);
+    QueryPerformanceCounter(&start);
+    for (int i = 0; i < 1000000; ++i) sink = fn(a, b, n);
+    QueryPerformanceCounter(&end);
+    return double(end.QuadPart - start.QuadPart) * 1e9 / frequency.QuadPart / 1000000;
 }
 int main(int argc, char** argv) {
     if (argc != 2 || !crtPrepare(LoadLibraryA(argv[1]))) return 2;
@@ -94,6 +104,21 @@ int main(int argc, char** argv) {
         }
         printf("equal ASCII %3u bytes: CRT %.2f ns, previous %.2f ns, SIMD %.2f ns, previous/SIMD %.2fx\n",
                length, crtBest, oldBest, newBest, oldBest / newBest);
+    }
+    for (unsigned length : {4u,8u,12u,16u,24u,32u,64u,128u}) for (unsigned mismatch : {0u,1u}) {
+        char* p = (char*)a + 4096; char* q = (char*)b + 4096;
+        memset(p, 'A', length); memset(q, 'a', length);
+        if (mismatch) q[0] = 'b';
+        double oldBest = 1e9, newBest = 1e9;
+        for (unsigned round = 0; round < 5; ++round) {
+            double oldTime, newTime;
+            if (round & 1) { newTime = measureBounded(fastStrnicmp, p, q, length); oldTime = measureBounded(previousBoundedCase, p, q, length); }
+            else { oldTime = measureBounded(previousBoundedCase, p, q, length); newTime = measureBounded(fastStrnicmp, p, q, length); }
+            if (oldTime < oldBest) oldBest = oldTime;
+            if (newTime < newBest) newBest = newTime;
+        }
+        printf("bounded %s %3u bytes: previous %.2f ns, narrow SIMD %.2f ns, previous/new %.2fx\n",
+               mismatch ? "early mismatch" : "equal ASCII", length, oldBest, newBest, oldBest / newBest);
     }
     VirtualFree(a, 0, MEM_RELEASE); VirtualFree(b, 0, MEM_RELEASE);
     return 0;

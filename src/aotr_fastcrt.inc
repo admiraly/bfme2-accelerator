@@ -203,6 +203,26 @@ static int __cdecl fastStrnicmp(const char* a, const char* b, size_t n) {
             int la = crtLowerAscii(ca), lb = crtLowerAscii(cb);
             return la == lb ? 0 : (la < lb ? -1 : 1);
         }
+        // Bounded names shorter than 16 bytes still benefit from SIMD.
+        // Narrow loads stay within both pages and the remaining count.
+        if (n - i >= 8 && (((((size_t)(a + i)) | ((size_t)(b + i))) & 4095) <= 4088)) {
+            unsigned events = crtCaseEvents(_mm_loadl_epi64((const __m128i*)(a + i)), _mm_loadl_epi64((const __m128i*)(b + i))) & 0xFF;
+            if (!events) { i += 8; continue; }
+            unsigned long k; _BitScanForward(&k, events);
+            BYTE ca = (BYTE)a[i + k], cb = (BYTE)b[i + k];
+            if ((ca | cb) & 0x80) return o_crtStrnicmp(a, b, n);
+            int la = crtLowerAscii(ca), lb = crtLowerAscii(cb);
+            return la == lb ? 0 : (la < lb ? -1 : 1);
+        }
+        if (n - i >= 4 && (((((size_t)(a + i)) | ((size_t)(b + i))) & 4095) <= 4092)) {
+            unsigned events = crtCaseEvents(_mm_cvtsi32_si128(*(const int*)(a + i)), _mm_cvtsi32_si128(*(const int*)(b + i))) & 0xF;
+            if (!events) { i += 4; continue; }
+            unsigned long k; _BitScanForward(&k, events);
+            BYTE ca = (BYTE)a[i + k], cb = (BYTE)b[i + k];
+            if ((ca | cb) & 0x80) return o_crtStrnicmp(a, b, n);
+            int la = crtLowerAscii(ca), lb = crtLowerAscii(cb);
+            return la == lb ? 0 : (la < lb ? -1 : 1);
+        }
         BYTE ca = (BYTE)a[i], cb = (BYTE)b[i]; ++i;
         if ((ca | cb) & 0x80) return o_crtStrnicmp(a, b, n);
         int la = crtLowerAscii(ca), lb = crtLowerAscii(cb);
